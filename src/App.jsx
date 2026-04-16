@@ -174,7 +174,7 @@ const App = () => {
       });
   }, [selectedSurah, reciter]);
 
-  // Handle Audio Looping and Sequence
+  // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
     const audio = audioRef.current;
     const handleEnded = () => {
@@ -183,18 +183,15 @@ const App = () => {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
-        if (activeAyahIndex < ayahs.length - 1) {
-          setActiveAyahIndex(prev => prev + 1);
-        } else {
-          setCurrentLoop(1);
-          setIsPlaying(false);
-        }
+        // We removed the logic that increments activeAyahIndex
+        setCurrentLoop(1);
+        setIsPlaying(false);
       }
     };
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [currentLoop, loopCount, activeAyahIndex, ayahs]);
-
+  }, [currentLoop, loopCount]); // Removed activeAyahIndex and ayahs from dependencies
+  
   // Load new audio source when Ayah changes
   useEffect(() => {
     if (ayahs[activeAyahIndex]) {
@@ -460,7 +457,7 @@ const App = () => {
                   <List size={16} className="text-[#8b7d6b]" />
                   <span className="text-[10px] font-black text-[#8b7d6b] uppercase tracking-[0.3em]">Surah Library</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full py-2">
+                <div className="grid grid-cols-1 gap-6 w-full py-8 max-w-2xl mx-auto">
                   {filteredSurahs.map(s => {
                     const totalAyahs = s.numberOfAyahs;
                     const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
@@ -523,9 +520,9 @@ const App = () => {
                 )}
                 
                 <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
-                  <p className="font-arabic text-4xl md:text-6xl leading-[2] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
-                    {ayahs[activeAyahIndex]?.text}
-                  </p>
+                  <p className="font-arabic text-2xl md:text-4xl leading-[2.5] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
+  {ayahs[activeAyahIndex]?.text}
+</p>
                   
                   <div className="flex justify-center items-center gap-4 my-8">
                     <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
@@ -634,7 +631,9 @@ const App = () => {
         
         .font-arabic { 
           font-family: 'Scheherazade New', serif;
-          word-spacing: 0.15em;
+          word-spacing: 0.25em;
+          letter-spacing: 0.1em;
+          line-height: 2.5;
         }
         
         .font-body { 
