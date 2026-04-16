@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, EyeOff, 
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
-  Loader2, Sparkles
+  Loader2, Sparkles, Volume1, VolumeX
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -60,7 +60,7 @@ const stripBismillah = (text, surahNumber) => {
   // Standard Uthmani Bismillah pattern
   const patterns = [
     "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
-    "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
+    "بِسْم. اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
     "بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ"
   ];
 
@@ -92,6 +92,11 @@ const App = () => {
   const [reciter, setReciter] = useState(RECITERS[0].id);
   const [tafsir, setTafsir] = useState(null);
   const [showTafsir, setShowTafsir] = useState(false);
+  
+  // Audio state tracking
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
 
   const audioRef = useRef(new Audio());
   const abortControllerRef = useRef(null);
@@ -191,6 +196,10 @@ const App = () => {
   // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
     const audio = audioRef.current;
+    
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    
     const handleEnded = () => {
       if (currentLoop < loopCount) {
         setCurrentLoop(prev => prev + 1);
@@ -201,10 +210,23 @@ const App = () => {
         setIsPlaying(false);
       }
     };
+    
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
-    return () => audio.removeEventListener('ended', handleEnded);
+    
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
   }, [currentLoop, loopCount]);
   
+  // Handle Volume
+  useEffect(() => {
+    audioRef.current.volume = volume;
+  }, [volume]);
+
   // Load new audio source when Ayah changes
   useEffect(() => {
     if (ayahs[activeAyahIndex]) {
@@ -226,6 +248,12 @@ const App = () => {
     setIsPlaying(!isPlaying);
   };
 
+  const handleSeek = (e) => {
+    const time = Number(e.target.value);
+    audioRef.current.currentTime = time;
+    setCurrentTime(time);
+  };
+
   const filteredSurahs = useMemo(() => 
     surahs.filter(s => 
       s.englishName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -245,12 +273,9 @@ const App = () => {
       return { ...s, mastery: percentage, remaining: s.numberOfAyahs - masteredCount };
     });
 
-    // Filter for surahs that have progress but aren't 100% complete
     const inProgress = candidates.filter(c => c.mastery > 0 && c.mastery < 100);
-    
     if (inProgress.length === 0) return null;
 
-    // Sort by highest mastery first, then by least remaining ayahs
     return inProgress.sort((a, b) => {
       if (b.mastery !== a.mastery) return b.mastery - a.mastery;
       return a.remaining - b.remaining;
@@ -556,17 +581,36 @@ const App = () => {
                   {isTextHidden ? <Eye size={32} /> : <EyeOff size={32} />}
                 </button>
 
-                <div className="flex items-center bg-[#1e3a31] rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20">
-                  <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
-                  <button onClick={togglePlay} className="w-24 h-24 bg-[#c29b40] text-[#1e3a31] rounded-full flex items-center justify-center shadow-lg hover:brightness-110 transition-all transform active:scale-95">
-                    {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
-                  </button>
-                  <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
+                <div className="flex flex-col gap-4">
+                    <div className="flex items-center bg-[#1e3a31] rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20">
+                    <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
+                    <button onClick={togglePlay} className="w-24 h-24 bg-[#c29b40] text-[#1e3a31] rounded-full flex items-center justify-center shadow-lg hover:brightness-110 transition-all transform active:scale-95">
+                        {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
+                    </button>
+                    <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
+                    </div>
                 </div>
 
                 <button onClick={() => { audioRef.current.currentTime = 0; audioRef.current.play(); setIsPlaying(true); }} className="w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center text-[#1e3a31] hover:bg-[#faf7f0]">
                   <RotateCcw size={32} />
                 </button>
+              </div>
+
+              {/* RESTORED: Audio Progress Slider */}
+              <div className="w-full max-w-xl flex flex-col items-center gap-2 group">
+                 <div className="flex justify-between w-full text-[10px] font-bold text-[#8b7d6b] uppercase tracking-widest">
+                    <span>{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
+                    <span>Iteration {currentLoop}/{loopCount}</span>
+                    <span>{new Date(duration * 1000).toISOString().substr(14, 5)}</span>
+                 </div>
+                 <input 
+                    type="range" 
+                    min="0" 
+                    max={duration || 0} 
+                    value={currentTime} 
+                    onChange={handleSeek}
+                    className="w-full accent-[#c29b40] h-1.5 cursor-pointer rounded-full bg-[#e8dfca] appearance-none"
+                 />
               </div>
 
               <div className="flex flex-col items-center gap-5">
@@ -616,8 +660,17 @@ const App = () => {
       </main>
 
       {selectedSurah && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#1e3a31] text-white px-10 py-4 rounded-full shadow-2xl flex items-center gap-6 border border-[#c29b40]/30 z-20 backdrop-blur-sm bg-opacity-95">
-          <Volume2 size={22} className="text-[#c29b40]" />
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#1e3a31] text-white px-8 py-4 rounded-full shadow-2xl flex items-center gap-6 border border-[#c29b40]/30 z-20 backdrop-blur-sm bg-opacity-95">
+          <div className="flex items-center gap-3 border-r border-white/10 pr-6">
+            <button onClick={() => setVolume(v => v === 0 ? 1 : 0)} className="text-[#c29b40]">
+                {volume === 0 ? <VolumeX size={20} /> : volume < 0.5 ? <Volume1 size={20} /> : <Volume2 size={20} />}
+            </button>
+            <input 
+                type="range" min="0" max="1" step="0.01" value={volume} 
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-20 accent-[#c29b40] h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
+            />
+          </div>
           <select value={reciter} onChange={(e) => setReciter(e.target.value)} className="bg-transparent text-sm font-heading focus:outline-none appearance-none cursor-pointer pr-4">
             {RECITERS.map(r => <option key={r.id} value={r.id} className="text-slate-900">{r.name}</option>)}
           </select>
