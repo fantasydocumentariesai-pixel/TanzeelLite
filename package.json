@@ -1,0 +1,9 @@
+{
+  "name": "tanzeel-app",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "firebase": "^10.0.0",
+    "lucide-react": "^0.300.0"
+  }
+}
