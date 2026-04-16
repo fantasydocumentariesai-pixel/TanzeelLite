@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, EyeOff, 
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
-  Loader2
+  Loader2, Sparkles
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -36,7 +36,6 @@ const RECITERS = [
 const BISMILLAH_ARABIC = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
 
 // Firebase Setup using global variables provided by environment (MANDATORY)
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyD9OD-pAQDf3pMMyqI3mzoUsQU_zaEhFR0",
   authDomain: "tanzeellite.firebaseapp.com",
@@ -91,7 +90,6 @@ const App = () => {
           try {
             await signInWithCustomToken(auth, __initial_auth_token);
           } catch (tokenErr) {
-            // If custom token fails (e.g. mismatch), fall back to anonymous
             await signInAnonymously(auth);
           }
         } else {
@@ -176,7 +174,7 @@ const App = () => {
       });
   }, [selectedSurah, reciter]);
 
-  // Handle Audio Looping (Single Ayah Only)
+  // Handle Audio Looping and Sequence
   useEffect(() => {
     const audio = audioRef.current;
     const handleEnded = () => {
@@ -185,14 +183,17 @@ const App = () => {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
-        // We removed the logic that increments activeAyahIndex
-        setCurrentLoop(1);
-        setIsPlaying(false);
+        if (activeAyahIndex < ayahs.length - 1) {
+          setActiveAyahIndex(prev => prev + 1);
+        } else {
+          setCurrentLoop(1);
+          setIsPlaying(false);
+        }
       }
     };
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [currentLoop, loopCount]); // Removed activeAyahIndex and ayahs from dependencies
+  }, [currentLoop, loopCount, activeAyahIndex, ayahs]);
 
   // Load new audio source when Ayah changes
   useEffect(() => {
@@ -223,6 +224,28 @@ const App = () => {
     ),
     [surahs, searchQuery]
   );
+
+  // Logic to find the surah closest to being finished
+  const resumeSurah = useMemo(() => {
+    if (surahs.length === 0) return null;
+    
+    const candidates = surahs.map(s => {
+      const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
+      const percentage = (masteredCount / s.numberOfAyahs) * 100;
+      return { ...s, mastery: percentage, remaining: s.numberOfAyahs - masteredCount };
+    });
+
+    // Filter for surahs that have progress but aren't 100% complete
+    const inProgress = candidates.filter(c => c.mastery > 0 && c.mastery < 100);
+    
+    if (inProgress.length === 0) return null;
+
+    // Sort by highest mastery first, then by least remaining ayahs
+    return inProgress.sort((a, b) => {
+      if (b.mastery !== a.mastery) return b.mastery - a.mastery;
+      return a.remaining - b.remaining;
+    })[0];
+  }, [surahs, memorizedAyahs]);
 
   const masteryPercentage = useMemo(() => {
     if (!selectedSurah || ayahs.length === 0) return 0;
@@ -399,46 +422,84 @@ const App = () => {
       <main className="w-full max-w-6xl flex-1 flex flex-col items-center justify-center p-6 text-center">
         {!selectedSurah ? (
           <div className="w-full">
-            {filteredSurahs.length > 0 ? (
-             <div className="grid grid-cols-1 gap-6 w-full py-8 max-w-2xl mx-auto">
-                {filteredSurahs.map(s => {
-                  const totalAyahs = s.numberOfAyahs;
-                  const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
-                  const surahMastery = Math.round((masteredCount / totalAyahs) * 100);
-                  const isFullyMastered = surahMastery === 100;
+            {/* CONTINUE JOURNEY SECTION */}
+            {resumeSurah && !searchQuery && (
+              <div className="w-full mb-12 text-left animate-in fade-in slide-in-from-top-4 duration-700">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles size={16} className="text-[#c29b40]" />
+                  <span className="text-[10px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Continue Journey</span>
+                </div>
+                <button 
+                  onClick={() => setSelectedSurah(resumeSurah)}
+                  className="w-full bg-[#1e3a31] rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between group relative overflow-hidden shadow-2xl shadow-emerald-900/40 border border-[#c29b40]/30"
+                >
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-[#c29b40]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+                  
+                  <div className="relative z-10 space-y-3 md:space-y-1 text-center md:text-left">
+                    <p className="text-[#c29b40] text-[10px] font-bold tracking-widest uppercase">Almost there • {resumeSurah.remaining} Ayahs left</p>
+                    <h2 className="text-3xl md:text-4xl font-heading text-white">{resumeSurah.englishName}</h2>
+                    <p className="text-emerald-100/40 text-xs font-light tracking-wide">{resumeSurah.englishNameTranslation} • Surah {resumeSurah.number}</p>
+                  </div>
 
-                  return (
-                    <button 
-                      key={s.number} 
-                      onClick={() => setSelectedSurah(s)} 
-                      className={`p-6 border-b-4 transition-all text-left flex justify-between items-center group relative overflow-hidden rounded-2xl shadow-sm hover:shadow-md ${
-                        isFullyMastered 
-                        ? 'bg-[#1e3a31] border-[#c29b40] text-white shadow-emerald-900/20' 
-                        : 'bg-white border-[#e8dfca] hover:border-[#c29b40] text-[#1e3a31]'
-                      }`}
-                    >
-                      <div className="flex flex-col relative z-10">
-                         <p className={`text-[10px] font-black mb-1 ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>SURAH {s.number}</p>
-                         <h3 className="text-xl font-heading font-bold group-hover:translate-x-1 transition-transform">{s.englishName}</h3>
-                         <p className={`text-[10px] mt-2 font-bold uppercase ${isFullyMastered ? 'text-emerald-100/60' : 'opacity-60'}`}>
-                           {s.numberOfAyahs} VERSES • {s.englishNameTranslation}
-                         </p>
-                         <div className="mt-3 flex items-center gap-2">
-                            <div className={`h-1 w-12 rounded-full overflow-hidden ${isFullyMastered ? 'bg-[#c29b40]/20' : 'bg-slate-100'}`}>
-                              <div className={`h-full transition-all duration-500 bg-[#c29b40]`} style={{ width: `${surahMastery}%` }}></div>
-                            </div>
-                            <span className={`text-[9px] font-black tracking-widest uppercase ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>
-                              {surahMastery}% Surah Mastery
-                            </span>
-                         </div>
-                      </div>
-                      <div className="text-right relative z-10">
-                        <p className={`font-arabic text-4xl ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#1e3a31]'}`}>{s.name}</p>
-                      </div>
-                    </button>
-                  );
-                })}
+                  <div className="flex flex-col items-center md:items-end gap-4 mt-6 md:mt-0 relative z-10">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-heading text-[#c29b40]">{Math.round(resumeSurah.mastery)}</span>
+                      <span className="text-xs text-white/40 font-bold uppercase tracking-widest">% Mastery</span>
+                    </div>
+                    <div className="w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#c29b40] transition-all duration-1000" style={{ width: `${resumeSurah.mastery}%` }} />
+                    </div>
+                  </div>
+                </button>
               </div>
+            )}
+
+            {filteredSurahs.length > 0 ? (
+              <>
+                <div className="flex items-center gap-2 mb-6 justify-start">
+                  <List size={16} className="text-[#8b7d6b]" />
+                  <span className="text-[10px] font-black text-[#8b7d6b] uppercase tracking-[0.3em]">Surah Library</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full py-2">
+                  {filteredSurahs.map(s => {
+                    const totalAyahs = s.numberOfAyahs;
+                    const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
+                    const surahMastery = Math.round((masteredCount / totalAyahs) * 100);
+                    const isFullyMastered = surahMastery === 100;
+
+                    return (
+                      <button 
+                        key={s.number} 
+                        onClick={() => setSelectedSurah(s)} 
+                        className={`p-6 border-b-4 transition-all text-left flex justify-between items-center group relative overflow-hidden rounded-2xl shadow-sm hover:shadow-md ${
+                          isFullyMastered 
+                          ? 'bg-[#1e3a31] border-[#c29b40] text-white shadow-emerald-900/20' 
+                          : 'bg-white border-[#e8dfca] hover:border-[#c29b40] text-[#1e3a31]'
+                        }`}
+                      >
+                        <div className="flex flex-col relative z-10">
+                           <p className={`text-[10px] font-black mb-1 ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>SURAH {s.number}</p>
+                           <h3 className="text-xl font-heading font-bold group-hover:translate-x-1 transition-transform">{s.englishName}</h3>
+                           <p className={`text-[10px] mt-2 font-bold uppercase ${isFullyMastered ? 'text-emerald-100/60' : 'opacity-60'}`}>
+                             {s.numberOfAyahs} VERSES • {s.englishNameTranslation}
+                           </p>
+                           <div className="mt-3 flex items-center gap-2">
+                              <div className={`h-1 w-12 rounded-full overflow-hidden ${isFullyMastered ? 'bg-[#c29b40]/20' : 'bg-slate-100'}`}>
+                                <div className={`h-full transition-all duration-500 bg-[#c29b40]`} style={{ width: `${surahMastery}%` }}></div>
+                              </div>
+                              <span className={`text-[9px] font-black tracking-widest uppercase ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>
+                                {surahMastery}% Surah Mastery
+                              </span>
+                           </div>
+                        </div>
+                        <div className="text-right relative z-10">
+                          <p className={`font-arabic text-4xl ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#1e3a31]'}`}>{s.name}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             ) : (
               <div className="py-20 text-center space-y-4">
                 <Search size={48} className="mx-auto text-[#e8dfca]" />
@@ -462,9 +523,9 @@ const App = () => {
                 )}
                 
                 <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
-                  <p className="font-arabic text-2xl md:text-3xl leading-relaxed text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
-  {ayahs[activeAyahIndex]?.text}
-</p>
+                  <p className="font-arabic text-4xl md:text-6xl leading-[2] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
+                    {ayahs[activeAyahIndex]?.text}
+                  </p>
                   
                   <div className="flex justify-center items-center gap-4 my-8">
                     <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
@@ -573,9 +634,7 @@ const App = () => {
         
         .font-arabic { 
           font-family: 'Scheherazade New', serif;
-          word-spacing: 0.25em;
-          letter-spacing: 0.05em;
-          line-height: 2.8;
+          word-spacing: 0.15em;
         }
         
         .font-body { 
@@ -599,8 +658,8 @@ const App = () => {
 };
 
 export default App;
-import { createRoot } from 'react-dom/client';
 
+import { createRoot } from 'react-dom/client';
 const container = document.getElementById('root');
 const root = createRoot(container);
 root.render(<App />);
