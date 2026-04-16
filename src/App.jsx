@@ -465,9 +465,9 @@ const App = () => {
                 )}
                 
                 <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
-                  <p className="font-arabic text-4xl md:text-6xl leading-[2] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
-                    {ayahs[activeAyahIndex]?.text}
-                  </p>
+                  <p className="font-arabic text-2xl md:text-3xl leading-relaxed text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
+  {ayahs[activeAyahIndex]?.text}
+</p>
                   
                   <div className="flex justify-center items-center gap-4 my-8">
                     <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
@@ -577,8 +577,8 @@ const App = () => {
         .font-arabic { 
           font-family: 'Scheherazade New', serif;
           word-spacing: 0.25em;
-          letter-spacing: 0.1em;
-          line-height: 2.5;
+          letter-spacing: 0.05em;
+          line-height: 2.8;
         }
         
         .font-body { 
