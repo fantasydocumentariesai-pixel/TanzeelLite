@@ -403,7 +403,7 @@ const App = () => {
         {!selectedSurah ? (
           <div className="w-full">
             {filteredSurahs.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full py-8">
+             <div className="grid grid-cols-1 gap-6 w-full py-8 max-w-2xl mx-auto">
                 {filteredSurahs.map(s => {
                   const totalAyahs = s.numberOfAyahs;
                   const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
