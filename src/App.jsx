@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, EyeOff, 
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
-  Loader2, Sparkles, Volume1, VolumeX
+  Loader2, Sparkles, Volume1, VolumeX, FastForward
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -52,12 +52,10 @@ const appId = 'tanzeel-lite-v1';
 
 /**
  * Utility to strip Bismillah from the start of an Ayah except for Surah Fatiha and Tawbah
- * Added more robust patterns to catch different orthographies of Bismillah
  */
 const stripBismillah = (text, surahNumber) => {
   if (surahNumber === 1 || surahNumber === 9) return text;
   
-  // Standard Uthmani Bismillah pattern
   const patterns = [
     "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
     "بِسْم. اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
@@ -97,6 +95,9 @@ const App = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+
+  // Quick Master State
+  const [quickMasterId, setQuickMasterId] = useState("");
 
   const audioRef = useRef(new Audio());
   const abortControllerRef = useRef(null);
@@ -262,6 +263,31 @@ const App = () => {
     ),
     [surahs, searchQuery]
   );
+
+  const handleQuickMaster = async () => {
+    if (!quickMasterId) return;
+    const s = surahs.find(item => item.number === parseInt(quickMasterId));
+    if (!s) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/surah/${s.number}/editions/quran-uthmani`);
+      const data = await response.json();
+      const surahAyahs = data.data[0].ayahs;
+      
+      const newMemorized = { ...memorizedAyahs };
+      surahAyahs.forEach(ayah => {
+        newMemorized[`${s.number}:${ayah.numberInSurah}`] = true;
+      });
+      
+      await updateMemorizedData(newMemorized);
+      setQuickMasterId("");
+    } catch (e) {
+      console.error("Quick master failed", e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Logic to find the surah closest to being finished
   const resumeSurah = useMemo(() => {
@@ -457,6 +483,39 @@ const App = () => {
       <main className="w-full max-w-6xl flex-1 flex flex-col items-center justify-center p-6 text-center">
         {!selectedSurah ? (
           <div className="w-full">
+            {/* QUICK MASTER SECTION */}
+            {!searchQuery && (
+              <div className="w-full mb-12 bg-white/50 border border-[#e8dfca] rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="text-left">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FastForward size={16} className="text-[#c29b40]" />
+                    <span className="text-[10px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Quick Mastery</span>
+                  </div>
+                  <h3 className="text-xl font-heading text-[#1e3a31]">Skip to Full Mastery</h3>
+                  <p className="text-[#8b7d6b] text-xs font-light">Already know a Surah? Mark it all as finished instantly.</p>
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <select 
+                    value={quickMasterId} 
+                    onChange={(e) => setQuickMasterId(e.target.value)}
+                    className="flex-1 md:w-64 bg-[#fdfaf3] border border-[#e8dfca] rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#c29b40]/20 outline-none"
+                  >
+                    <option value="">Select a Surah...</option>
+                    {surahs.map(s => (
+                      <option key={s.number} value={s.number}>{s.number}. {s.englishName}</option>
+                    ))}
+                  </select>
+                  <button 
+                    onClick={handleQuickMaster}
+                    disabled={!quickMasterId || loading}
+                    className="px-6 py-3 bg-[#1e3a31] text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#2a4e42] transition-all disabled:opacity-50"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* CONTINUE JOURNEY SECTION */}
             {resumeSurah && !searchQuery && (
               <div className="w-full mb-12 text-left animate-in fade-in slide-in-from-top-4 duration-700">
@@ -596,7 +655,6 @@ const App = () => {
                 </button>
               </div>
 
-              {/* RESTORED: Audio Progress Slider */}
               <div className="w-full max-w-xl flex flex-col items-center gap-2 group">
                  <div className="flex justify-between w-full text-[10px] font-bold text-[#8b7d6b] uppercase tracking-widest">
                     <span>{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
