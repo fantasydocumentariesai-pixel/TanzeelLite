@@ -176,7 +176,7 @@ const App = () => {
       });
   }, [selectedSurah, reciter]);
 
-  // Handle Audio Looping and Sequence
+  // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
     const audio = audioRef.current;
     const handleEnded = () => {
@@ -185,17 +185,14 @@ const App = () => {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
-        if (activeAyahIndex < ayahs.length - 1) {
-          setActiveAyahIndex(prev => prev + 1);
-        } else {
-          setCurrentLoop(1);
-          setIsPlaying(false);
-        }
+        // We removed the logic that increments activeAyahIndex
+        setCurrentLoop(1);
+        setIsPlaying(false);
       }
     };
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [currentLoop, loopCount, activeAyahIndex, ayahs]);
+  }, [currentLoop, loopCount]); // Removed activeAyahIndex and ayahs from dependencies
 
   // Load new audio source when Ayah changes
   useEffect(() => {
