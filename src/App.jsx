@@ -576,7 +576,9 @@ const App = () => {
         
         .font-arabic { 
           font-family: 'Scheherazade New', serif;
-          word-spacing: 0.15em;
+          word-spacing: 0.25em;
+          letter-spacing: 0.1em;
+          line-height: 2.5;
         }
         
         .font-body { 
