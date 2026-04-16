@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, EyeOff, 
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
-  Loader2, Sparkles, Volume1, VolumeX
+  Loader2, Sparkles
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -52,13 +52,27 @@ const appId = 'tanzeel-lite-v1';
 
 /**
  * Utility to strip Bismillah from the start of an Ayah except for Surah Fatiha and Tawbah
+ * Added more robust patterns to catch different orthographies of Bismillah
  */
 const stripBismillah = (text, surahNumber) => {
   if (surahNumber === 1 || surahNumber === 9) return text;
-  if (text.startsWith(BISMILLAH_ARABIC)) return text.replace(BISMILLAH_ARABIC, "").trim();
-  const normalized = "بِسْم. اللَّهِ الرَّحْمَنِ الرَّحِيمِ";
-  if (text.startsWith(normalized)) return text.replace(normalized, "").trim();
-  return text;
+  
+  // Standard Uthmani Bismillah pattern
+  const patterns = [
+    "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
+    "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
+    "بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ"
+  ];
+
+  let cleanedText = text;
+  for (const pattern of patterns) {
+    if (cleanedText.startsWith(pattern)) {
+      cleanedText = cleanedText.replace(pattern, "").trim();
+      break;
+    }
+  }
+  
+  return cleanedText;
 };
 
 const App = () => {
@@ -78,7 +92,6 @@ const App = () => {
   const [reciter, setReciter] = useState(RECITERS[0].id);
   const [tafsir, setTafsir] = useState(null);
   const [showTafsir, setShowTafsir] = useState(false);
-  const [volume, setVolume] = useState(1);
 
   const audioRef = useRef(new Audio());
   const abortControllerRef = useRef(null);
@@ -174,11 +187,6 @@ const App = () => {
         if (err.name !== 'AbortError') setLoading(false);
       });
   }, [selectedSurah, reciter]);
-
-  // Handle Volume Changes
-  useEffect(() => {
-    audioRef.current.volume = volume;
-  }, [volume]);
 
   // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
@@ -348,7 +356,7 @@ const App = () => {
             <X size={20} />
           </button>
           <h2 className="text-3xl font-heading text-[#1e3a31] mb-8 border-b border-[#e8dfca] pb-4">Memorization Guide</h2>
-          <div className="space-y-8 text-[#5c5346] lifestyle-relaxed">
+          <div className="space-y-8 text-[#5c5346] leading-relaxed">
             <section className="flex gap-4">
                 <div className="h-8 w-8 rounded-full bg-[#1e3a31] text-[#c29b40] flex items-center justify-center shrink-0 font-bold">1</div>
                 <div>
@@ -543,7 +551,7 @@ const App = () => {
             </div>
 
             <div className="flex flex-col items-center space-y-12">
-              <div className="flex items-center gap-10 relative">
+              <div className="flex items-center gap-10">
                 <button onClick={() => setIsTextHidden(!isTextHidden)} className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isTextHidden ? 'bg-[#c29b40] text-[#1e3a31] shadow-lg scale-110' : 'bg-white border border-[#e8dfca] text-[#1e3a31] hover:bg-[#faf7f0]'}`}>
                   {isTextHidden ? <Eye size={32} /> : <EyeOff size={32} />}
                 </button>
@@ -554,19 +562,6 @@ const App = () => {
                     {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
                   </button>
                   <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
-                </div>
-
-                <div className="hidden lg:flex items-center gap-4 bg-white border border-[#e8dfca] rounded-full px-6 py-4 absolute left-full ml-10 shadow-sm w-48">
-                    {volume === 0 ? <VolumeX size={20} className="text-[#c29b40]" /> : volume < 0.5 ? <Volume1 size={20} className="text-[#c29b40]" /> : <Volume2 size={20} className="text-[#c29b40]" />}
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="1" 
-                      step="0.01" 
-                      value={volume} 
-                      onChange={(e) => setVolume(parseFloat(e.target.value))}
-                      className="w-full accent-[#c29b40] h-1.5 cursor-pointer"
-                    />
                 </div>
 
                 <button onClick={() => { audioRef.current.currentTime = 0; audioRef.current.play(); setIsPlaying(true); }} className="w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center text-[#1e3a31] hover:bg-[#faf7f0]">
@@ -649,9 +644,11 @@ const App = () => {
         
         .font-arabic { 
           font-family: 'Scheherazade New', serif;
-          word-spacing: 0.25em;
-          letter-spacing: 0.1em;
-          line-height: 2.5;
+          word-spacing: 0.15em;
+          letter-spacing: 0.05em;
+          line-height: 2.8;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
         }
         
         .font-body { 
@@ -669,28 +666,6 @@ const App = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #fdfaf3; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #c29b40; border-radius: 10px; }
-
-        input[type='range'] {
-          -webkit-appearance: none;
-          background: transparent;
-        }
-        input[type='range']::-webkit-slider-runnable-track {
-          width: 100%;
-          height: 6px;
-          cursor: pointer;
-          background: #e8dfca;
-          border-radius: 10px;
-        }
-        input[type='range']::-webkit-slider-thumb {
-          height: 18px;
-          width: 18px;
-          border-radius: 50%;
-          background: #c29b40;
-          cursor: pointer;
-          -webkit-appearance: none;
-          margin-top: -6px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
       `}</style>
     </div>
   );
