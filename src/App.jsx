@@ -73,16 +73,6 @@ const stripBismillah = (text, surahNumber) => {
   return text;
 };
 
-  let cleanedText = text;
-  for (const pattern of patterns) {
-    if (cleanedText.startsWith(pattern)) {
-      cleanedText = cleanedText.replace(pattern, "").trim();
-      break;
-    }
-  }
-  
-  return cleanedText;
-};
 
 const App = () => {
   const [view, setView] = useState('loading');
