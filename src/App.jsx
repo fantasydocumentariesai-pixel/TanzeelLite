@@ -55,13 +55,19 @@ const appId = 'tanzeel-lite-v1';
  * Utility to strip Bismillah from the start of an Ayah except for Surah Fatiha and Tawbah
  */
 const stripBismillah = (text, surahNumber) => {
+  // Surah Fatiha (1) and At-Tawbah (9) are exceptions
   if (surahNumber === 1 || surahNumber === 9) return text;
   
-  const patterns = [
-    "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
-    "بِسْم. اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
-    "بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ"
-  ];
+  // Most APIs prepend exactly 4 words for the Bismillah in Uthmani script.
+  // We split the text and check if the first words contain the Bismillah signature.
+  const words = text.split(" ");
+  if (words.length > 4 && words[0].includes("بِسْمِ")) {
+    // Remove the first 4 words (The Bismillah) and join the rest back together
+    return words.slice(4).join(" ").trim();
+  }
+  
+  return text;
+};
 
   let cleanedText = text;
   for (const pattern of patterns) {
