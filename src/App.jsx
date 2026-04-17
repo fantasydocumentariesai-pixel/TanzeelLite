@@ -134,27 +134,30 @@ const App = () => {
 
   // Firestore Sync (Rule 1 & 2)
   useEffect(() => {
-    if (!user) return;
-    
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'memorization');
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setMemorizedAyahs(docSnap.data().ayahs || {});
-      }
-    }, (error) => {
-      console.error("Firestore sync error:", error);
-    });
-    
-    return () => unsubscribe();
-  }, [user]);
+  if (!user) return;
+  
+  // Updated path to ensure cloud sync works across all devices
+  const docRef = doc(db, 'users', user.uid, 'data', 'progress');
+  
+  const unsubscribe = onSnapshot(docRef, (docSnap) => {
+    if (docSnap.exists()) {
+      setMemorizedAyahs(docSnap.data().ayahs || {});
+    }
+  }, (error) => {
+    console.error("Firestore sync error:", error);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
 
   const updateMemorizedData = async (newData) => {
-    setMemorizedAyahs(newData);
-    if (user) {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'memorization');
-      await setDoc(docRef, { ayahs: newData }, { merge: true });
-    }
-  };
+  setMemorizedAyahs(newData);
+  if (user) {
+    // Ensuring the save path matches the retrieval path exactly
+    const docRef = doc(db, 'users', user.uid, 'data', 'progress');
+    await setDoc(docRef, { ayahs: newData }, { merge: true });
+  }
+};
 
   // Fetch Surah List
   useEffect(() => {
@@ -198,32 +201,27 @@ const App = () => {
 
   // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
-    const audio = audioRef.current;
-    
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    
-    const handleEnded = () => {
-      if (currentLoop < loopCount) {
-        setCurrentLoop(prev => prev + 1);
+  const audio = audioRef.current;
+  
+  const handleEnded = () => {
+    setCurrentLoop(prevLoop => {
+      if (prevLoop < loopCount) {
         audio.currentTime = 0;
-        audio.play().catch(() => {});
+        // 50ms delay helps mobile browsers register the "new" play request
+        setTimeout(() => {
+          audio.play().catch(e => console.log("Mobile playback error:", e));
+        }, 50);
+        return prevLoop + 1;
       } else {
-        setCurrentLoop(1);
         setIsPlaying(false);
+        return 1;
       }
-    };
-    
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
-    
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [currentLoop, loopCount]);
+    });
+  };
+  
+  audio.addEventListener('ended', handleEnded);
+  return () => audio.removeEventListener('ended', handleEnded);
+}, [loopCount]);
   
   // Handle Volume
   useEffect(() => {
@@ -351,7 +349,15 @@ const App = () => {
           </div>
           <div className="space-y-4 pt-4">
             <button 
-              onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} 
+              onClick={async () => {
+                const provider = new GoogleAuthProvider();
+                provider.setCustomParameters({ prompt: 'select_account' }); 
+                try {
+                  await signInWithPopup(auth, provider);
+                } catch (e) {
+                  console.error("Login failed:", e);
+                }
+              }} 
               className="w-full py-4 bg-[#1e3a31] text-white rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-[#2a4e42] transition-all shadow-lg shadow-emerald-900/20"
             >
               <LogIn size={20} className="text-[#c29b40]" /> Continue with Google
