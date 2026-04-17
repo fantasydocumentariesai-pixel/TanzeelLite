@@ -51,9 +51,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'tanzeel-lite-v1';
 
-/**
- * Utility to strip Bismillah from the start of an Ayah except for Surah Fatiha and Tawbah
- */
+
 /**
  * Robust utility to strip Bismillah using word-tokenization.
  * This handles different Arabic encodings and non-breaking spaces.
