@@ -485,7 +485,7 @@ const App = () => {
 
   return (
     <div className={`w-full min-h-screen transition-colors duration-1000 ${isKhusyukMode ? 'bg-[#0a0f1e] text-cyan-50' : 'bg-[#fdfaf3] text-[#1e3a31]'} font-sans flex flex-col items-center`}>
-      <header className="w-full bg-white border-b border-[#e8dfca] p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4">
+      <header className={`w-full transition-colors duration-1000 ${isKhusyukMode ? 'bg-[#0f172a] border-cyan-900/50' : 'bg-white border-[#e8dfca]'} border-b p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4`}>
         {!selectedSurah ? (
           <>
             <div className="flex items-center gap-4 w-full md:w-auto">
