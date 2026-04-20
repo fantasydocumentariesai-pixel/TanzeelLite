@@ -91,6 +91,13 @@ const App = () => {
   const [reciter, setReciter] = useState(RECITERS[0].id);
   const [tafsir, setTafsir] = useState(null);
   const [showTafsir, setShowTafsir] = useState(false);
+ 
+  // --- Khusyuk Mode States ---
+  const [isKhusyukMode, setIsKhusyukMode] = useState(false);
+  const [khusyukPhase, setKhusyukPhase] = useState('tikrah'); // 'tikrah' or 'hifz'
+  const [tikrahRange, setTikrahRange] = useState({ start: 1, end: 1 });
+  const [customLoops, setCustomLoops] = useState(1);
+  const [isInfinity, setIsInfinity] = useState(false);
   
   // Audio state tracking
   const [currentTime, setCurrentTime] = useState(0);
@@ -199,29 +206,38 @@ const App = () => {
       });
   }, [selectedSurah, reciter]);
 
-  // Handle Audio Looping (Single Ayah Only)
+// Updated Audio Looping (Supports Khusyuk Range & Custom Iterations)
   useEffect(() => {
-  const audio = audioRef.current;
-  
-  const handleEnded = () => {
-    setCurrentLoop(prevLoop => {
-      if (prevLoop < loopCount) {
-        audio.currentTime = 0;
-        // 50ms delay helps mobile browsers register the "new" play request
-        setTimeout(() => {
-          audio.play().catch(e => console.log("Mobile playback error:", e));
-        }, 50);
-        return prevLoop + 1;
-      } else {
-        setIsPlaying(false);
-        return 1;
-      }
-    });
-  };
-  
-  audio.addEventListener('ended', handleEnded);
-  return () => audio.removeEventListener('ended', handleEnded);
-}, [loopCount]);
+    const audio = audioRef.current;
+    
+    const handleEnded = () => {
+      setCurrentLoop(prevLoop => {
+        const targetLoops = isInfinity ? Infinity : (isKhusyukMode ? customLoops : loopCount);
+        
+        if (prevLoop < targetLoops) {
+          audio.currentTime = 0;
+          setTimeout(() => audio.play().catch(e => console.log("Playback error:", e)), 50);
+          return prevLoop + 1;
+        } else {
+          // Range Logic for Khusyuk Mode
+          if (isKhusyukMode && activeAyahIndex < (tikrahRange.end - 1)) {
+            setActiveAyahIndex(prev => prev + 1);
+            return 1;
+          } else if (isKhusyukMode && activeAyahIndex === (tikrahRange.end - 1)) {
+            // Restart the whole range if desired, or stop
+            setIsPlaying(false);
+            return 1;
+          }
+          
+          setIsPlaying(false);
+          return 1;
+        }
+      });
+    };
+    
+    audio.addEventListener('ended', handleEnded);
+    return () => audio.removeEventListener('ended', handleEnded);
+  }, [loopCount, customLoops, isInfinity, isKhusyukMode, tikrahRange, activeAyahIndex]);
   
   // Handle Volume
   useEffect(() => {
@@ -387,6 +403,27 @@ const App = () => {
           </div>
           
           <div className="space-y-4">
+            {/* Khusyuk Mode Toggle */}
+            <button 
+              onClick={() => {
+                setIsKhusyukMode(!isKhusyukMode);
+                if (!isKhusyukMode && resumeSurah) {
+                  // Prompt to select the recommended surah
+                  if(confirm(`Khusyuk Mode: Would you like to focus on ${resumeSurah.englishName}?`)) {
+                    setSelectedSurah(resumeSurah);
+                  }
+                }
+              }} 
+              className={`w-full p-4 rounded-2xl flex items-center justify-between border-2 transition-all ${isKhusyukMode ? 'bg-indigo-950 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-white border-slate-200 text-slate-600'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Sparkles size={20} className={isKhusyukMode ? "animate-pulse" : ""} />
+                <span className="font-heading text-sm tracking-widest uppercase">Enable Khusyuk Mode</span>
+              </div>
+              <div className={`w-10 h-5 rounded-full relative transition-colors ${isKhusyukMode ? 'bg-cyan-500' : 'bg-slate-200'}`}>
+                <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isKhusyukMode ? 'left-6' : 'left-1'}`} />
+              </div>
+            </button>
             <button onClick={() => setView('browser')} className="w-full group p-8 bg-[#1e3a31] rounded-[2rem] text-white flex items-center justify-between transition-all hover:translate-y-[-4px] shadow-xl shadow-emerald-900/30">
               <div className="text-left">
                 <h3 className="text-2xl font-heading mb-1">Begin Journey</h3>
@@ -447,7 +484,7 @@ const App = () => {
   }
 
   return (
-    <div className="w-full min-h-screen bg-[#fdfaf3] text-[#1e3a31] font-sans flex flex-col items-center">
+    <div className={`w-full min-h-screen transition-colors duration-1000 ${isKhusyukMode ? 'bg-[#0a0f1e] text-cyan-50' : 'bg-[#fdfaf3] text-[#1e3a31]'} font-sans flex flex-col items-center`}>
       <header className="w-full bg-white border-b border-[#e8dfca] p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4">
         {!selectedSurah ? (
           <>
@@ -699,6 +736,48 @@ const App = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-8 w-full max-w-2xl mx-auto pt-10">
+              {/* Khusyuk Mode Advanced Panel */}
+            {isKhusyukMode && (
+              <div className="w-full max-w-2xl mx-auto mt-10 p-8 bg-indigo-950/40 border-2 border-cyan-500/30 rounded-[3rem] backdrop-blur-xl transition-all">
+                {khusyukPhase === 'tikrah' ? (
+                  <div className="space-y-8 text-left">
+                    <div className="flex items-center gap-3 text-cyan-400">
+                      <FastForward size={24} />
+                      <h4 className="font-heading text-xl tracking-tight">Phase 1: TikrahPro</h4>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] text-cyan-400/50 uppercase font-black tracking-widest">Start Ayah</label>
+                        <input type="number" value={tikrahRange.start} onChange={(e) => setTikrahRange({...tikrahRange, start: parseInt(e.target.value)})} className="w-full bg-indigo-900/50 border border-cyan-500/20 rounded-2xl p-4 text-white outline-none" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] text-cyan-400/50 uppercase font-black tracking-widest">End Ayah</label>
+                        <input type="number" value={tikrahRange.end} onChange={(e) => setTikrahRange({...tikrahRange, end: parseInt(e.target.value)})} className="w-full bg-indigo-900/50 border border-cyan-500/20 rounded-2xl p-4 text-white outline-none" />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] text-cyan-400/50 uppercase font-black tracking-widest">Iterations: {isInfinity ? '∞' : `${customLoops}x`}</label>
+                        <button onClick={() => setIsInfinity(!isInfinity)} className={`px-4 py-1 rounded-full text-[10px] font-black border ${isInfinity ? 'bg-cyan-400 text-indigo-950' : 'text-cyan-400 border-cyan-400/30'}`}>INFINITY</button>
+                      </div>
+                      <input type="range" min="1" max="150" value={customLoops} onChange={(e) => { setCustomLoops(parseInt(e.target.value)); setIsInfinity(false); }} className="w-full accent-cyan-400 h-1.5 bg-indigo-900 rounded-full appearance-none" />
+                    </div>
+                    <button onClick={() => { setKhusyukPhase('hifz'); setIsTextHidden(true); }} className="w-full py-5 bg-cyan-500 text-indigo-950 rounded-2xl font-black uppercase tracking-[0.2em]">Begin Phase 2: Hifz</button>
+                  </div>
+                ) : (
+                  <div className="space-y-6 text-center py-4">
+                    <div className="flex flex-col items-center gap-4">
+                      <EyeOff size={32} className="text-cyan-400 animate-pulse" />
+                      <h4 className="font-heading text-2xl text-white">Phase 2: Hifz</h4>
+                      <p className="text-cyan-400/60 text-sm italic">Text is auto-blurred. Master this verse to proceed.</p>
+                    </div>
+                    <button onClick={() => setKhusyukPhase('tikrah')} className="flex items-center gap-2 mx-auto mt-4 px-6 py-2 bg-rose-500/10 text-rose-400 rounded-full text-[10px] font-black uppercase tracking-widest">
+                      <X size={14} /> Stop Hifz (Return to Tikrah)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
               <button 
                 onClick={() => {
                   const key = `${selectedSurah.number}:${ayahs[activeAyahIndex].number}`;
@@ -847,6 +926,12 @@ const App = () => {
           line-height: 2.8;
           text-rendering: optimizeLegibility;
           -webkit-font-smoothing: antialiased;
+        }
+
+        /* Khusyuk Mode Scrollbar & Accents */
+        .khusyuk-cyan { color: #22d3ee; }
+        input[type='range']::-webkit-slider-thumb {
+          cursor: pointer;
         }
         
         .font-body { 
