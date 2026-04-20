@@ -502,15 +502,26 @@ const App = () => {
               </button>
               <h1 className="text-2xl font-heading text-[#1e3a31]">TanzeelLite</h1>
             </div>
-            <div className="relative w-full md:w-80">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#c29b40]" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search Surah (Name or Number)..." 
-                className="w-full bg-[#fdfaf3] border border-[#e8dfca] rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#c29b40]/20 transition-all" 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-              />
+            <div className="relative w-full max-w-md group">
+  <div className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors">
+    {/* Search size 18 with dynamic visibility */}
+    <Search 
+      size={18} 
+      className={isKhusyukMode ? "text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]" : "text-[#c29b40]"} 
+    />
+  </div>
+  <input 
+    type="text" 
+    placeholder="Search Surah..." 
+    className={`w-full rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 transition-all duration-500 ${
+      isKhusyukMode 
+        ? 'bg-[#1e1b4b] border-cyan-500/30 text-white placeholder-cyan-700 focus:ring-cyan-500/50' 
+        : 'bg-[#fdfaf3] border-[#e8dfca] text-[#1e3a31] focus:ring-[#c29b40]/20'
+    }`} 
+    value={searchQuery} 
+    onChange={(e) => setSearchQuery(e.target.value)} 
+  />
+</div>
               {searchQuery && (
                 <button 
                   onClick={() => setSearchQuery("")}
