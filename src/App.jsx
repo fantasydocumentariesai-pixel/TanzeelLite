@@ -485,9 +485,7 @@ const App = () => {
 
   return (
     <div className={`w-full min-h-screen transition-all duration-1000 font-sans flex flex-col items-center ${
-  isKhusyukMode 
-    ? 'bg-[#0a0f1e] text-[#cffafe]' 
-    : 'bg-[#fdfaf3] text-[#1e3a31]'
+  isKhusyukMode ? 'bg-[#0a0f1e] text-[#cffafe]' : 'bg-[#fdfaf3] text-[#1e3a31]'
 }`}>
       <header className={`w-full p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4 border-b transition-colors duration-1000 ${
   isKhusyukMode 
@@ -568,6 +566,18 @@ const App = () => {
                     <FastForward size={16} className="text-[#c29b40]" />
                     <span className="text-[10px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Quick Mastery</span>
                   </div>
+                  <div className="text-center mb-12">
+  <h2 className={`font-heading text-3xl md:text-5xl mb-4 transition-all duration-1000 ${
+    isKhusyukMode ? 'text-white drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]' : 'text-[#1e3a31]'
+  }`}>
+    Surah Library
+  </h2>
+  <p className={`font-body italic transition-all duration-1000 ${
+    isKhusyukMode ? 'text-cyan-400 font-medium' : 'text-slate-600'
+  }`}>
+    Select a revelation to begin your journey
+  </p>
+</div>
                   <h3 className="text-xl font-heading text-[#1e3a31]">Skip to Full Mastery</h3>
                   <p className="text-[#8b7d6b] text-xs font-light">Already know a Surah? Mark multiple as finished instantly.</p>
                 </div>
