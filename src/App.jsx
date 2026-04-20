@@ -547,7 +547,11 @@ const App = () => {
           <div className="w-full">
             {/* QUICK MASTER SECTION */}
             {!searchQuery && (
-              <div className="w-full mb-12 bg-white/50 border border-[#e8dfca] rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className={`w-full mb-12 border rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${
+  isKhusyukMode 
+    ? 'bg-[#0f172a]/60 border-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.1)] backdrop-blur-md' 
+    : 'bg-white/50 border-[#e8dfca]'
+}`}>
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-2">
                     <FastForward size={16} className="text-[#c29b40]" />
@@ -625,11 +629,11 @@ const App = () => {
                       <button 
                         key={s.number} 
                         onClick={() => setSelectedSurah(s)} 
-                        className={`p-6 border-b-4 transition-all text-left flex justify-between items-center group relative overflow-hidden rounded-2xl shadow-sm hover:shadow-md ${
-                          isFullyMastered 
-                          ? 'bg-[#1e3a31] border-[#c29b40] text-white shadow-emerald-900/20' 
-                          : 'bg-white border-[#e8dfca] hover:border-[#c29b40] text-[#1e3a31]'
-                        }`}
+                        className={`p-6 border-b-4 transition-all text-left flex justify-between items-center group relative overflow-hidden rounded-2xl shadow-sm ${
+  isKhusyukMode 
+    ? (isFullyMastered ? 'bg-[#1e3a31] border-cyan-400 text-cyan-50' : 'bg-[#1e1b4b] border-cyan-900/50 text-cyan-100')
+    : (isFullyMastered ? 'bg-[#1e3a31] border-[#c29b40] text-white' : 'bg-white border-[#e8dfca] text-[#1e3a31]')
+}`}
                       >
                         <div className="flex flex-col relative z-10">
                            <p className={`text-[10px] font-black mb-1 ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>SURAH {s.number}</p>
