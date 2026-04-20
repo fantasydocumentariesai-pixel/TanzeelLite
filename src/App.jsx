@@ -489,7 +489,11 @@ const App = () => {
     ? 'bg-[#0a0f1e] text-[#cffafe]' 
     : 'bg-[#fdfaf3] text-[#1e3a31]'
 }`}>
-      <header className={`w-full transition-colors duration-1000 ${isKhusyukMode ? 'bg-[#0f172a] border-cyan-900/50' : 'bg-white border-[#e8dfca]'} border-b p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4`}>
+      <header className={`w-full p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4 border-b transition-colors duration-1000 ${
+  isKhusyukMode 
+    ? 'bg-[#0a0f1e] border-cyan-900/50' 
+    : 'bg-white border-[#e8dfca]'
+}`}>
         {!selectedSurah ? (
           <>
             <div className="flex items-center gap-4 w-full md:w-auto">
