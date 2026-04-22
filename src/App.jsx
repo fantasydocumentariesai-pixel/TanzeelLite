@@ -299,7 +299,6 @@ const App = () => {
   };
 
   // Logic to find the surah closest to being finished
-// Logic to find the surah closest to being finished
   const resumeSurah = useMemo(() => {
     if (surahs.length === 0) return null;
     
