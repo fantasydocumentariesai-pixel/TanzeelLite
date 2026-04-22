@@ -299,8 +299,8 @@ const App = () => {
   };
 
   // Logic to find the surah closest to being finished
-  const resumeSurah = useMemo(() => {
-    if (surahs.length === 0) return null;
+    const resumeSurah = useMemo(() => {
+      if (surahs.length === 0) return null;
     
     const candidates = surahs.map(s => {
       const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
