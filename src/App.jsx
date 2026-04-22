@@ -299,8 +299,40 @@ const App = () => {
   };
 
   // Logic to find the surah closest to being finished
+// Logic to find the surah closest to being finished
   const resumeSurah = useMemo(() => {
     if (surahs.length === 0) return null;
+    
+    const candidates = surahs.map(s => {
+      const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
+      const percentage = (masteredCount / s.numberOfAyahs) * 100;
+      return { ...s, mastery: percentage, remaining: s.numberOfAyahs - masteredCount };
+    });
+
+    const inProgress = candidates.filter(c => c.mastery > 0 && c.mastery < 100);
+    if (inProgress.length === 0) return null;
+
+    return inProgress.sort((a, b) => {
+      if (b.mastery !== a.mastery) return b.mastery - a.mastery;
+      return a.remaining - b.remaining;
+    })[0];
+  }, [surahs, memorizedAyahs]);
+
+  // --- ADD THIS NEW BLOCK HERE ---
+  const shortestRemainingSurah = useMemo(() => {
+    if (surahs.length === 0) return null;
+
+    const candidates = surahs.map(s => {
+      const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
+      return { ...s, isMastered: masteredCount === s.numberOfAyahs };
+    });
+
+    const incomplete = candidates.filter(c => !c.isMastered);
+    if (incomplete.length === 0) return null;
+
+    // Sorts by total length to find the easiest "Quick Win"
+    return incomplete.sort((a, b) => a.numberOfAyahs - b.numberOfAyahs)[0];
+  }, [surahs, memorizedAyahs]);
     
     const candidates = surahs.map(s => {
       const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
