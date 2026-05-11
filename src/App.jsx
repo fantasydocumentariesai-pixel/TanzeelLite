@@ -166,13 +166,23 @@ const App = () => {
         const english = data.data[1].ayahs;
         const audio = data.data[2].ayahs;
         
-        setAyahs(arabic.map((ayah, i) => ({
+        const fetchedAyahs = arabic.map((ayah, i) => ({
           number: ayah.numberInSurah,
           text: i === 0 ? stripBismillah(ayah.text, selectedSurah.number) : ayah.text,
           translation: english[i].text,
           audio: audio[i].audio
-        })));
-        setActiveAyahIndex(0);
+        }));
+        
+        setAyahs(fetchedAyahs);
+
+        // Find the earliest unmastered ayah
+        const firstUnmasteredIndex = fetchedAyahs.findIndex(
+          a => !memorizedAyahs[`${selectedSurah.number}:${a.number}`]
+        );
+
+        // Start at unmastered index if it exists, otherwise start at 0
+        setActiveAyahIndex(firstUnmasteredIndex !== -1 ? firstUnmasteredIndex : 0);
+        
         setLoading(false);
       })
       .catch(err => {
