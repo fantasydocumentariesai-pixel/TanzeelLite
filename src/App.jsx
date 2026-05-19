@@ -4,8 +4,7 @@ import {
   ChevronRight, ChevronLeft, EyeOff, 
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
-  Loader2, Sparkles, Volume1, VolumeX, FastForward,
-  Check, Headphones, Hash
+  Loader2, Sparkles
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -29,7 +28,6 @@ import {
 const API_BASE = "https://api.alquran.cloud/v1";
 const RECITERS = [
   { id: 'ar.alafasy', name: 'Mishary Rashid Alafasy' },
-  { id: 'ar.mahermuaiqly', name: 'Maher Al-Muaiqly' },
   { id: 'ar.husary', name: 'Mahmoud Khalil Al-Husary' },
   { id: 'ar.minshawi', name: 'Mohamed Siddiq El-Minshawi' },
   { id: 'ar.abdulsamad', name: 'Abdul Basit Abdus Samad' }
@@ -53,14 +51,13 @@ const db = getFirestore(app);
 const appId = 'tanzeel-lite-v1';
 
 /**
- * Robust utility to strip Bismillah using word-tokenization.
+ * Utility to strip Bismillah from the start of an Ayah except for Surah Fatiha and Tawbah
  */
 const stripBismillah = (text, surahNumber) => {
   if (surahNumber === 1 || surahNumber === 9) return text;
-  const words = text.trim().split(/\s+/);
-  if (words.length > 4 && words[0].includes("بِسْمِ")) {
-    return words.slice(4).join(" ");
-  }
+  if (text.startsWith(BISMILLAH_ARABIC)) return text.replace(BISMILLAH_ARABIC, "").trim();
+  const normalized = "بِسْم. اللَّهِ الرَّحْمَنِ الرَّحِيمِ";
+  if (text.startsWith(normalized)) return text.replace(normalized, "").trim();
   return text;
 };
 
@@ -73,7 +70,6 @@ const App = () => {
   const [ayahs, setAyahs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [verseSearch, setVerseSearch] = useState(""); // New: Verse search state
   const [activeAyahIndex, setActiveAyahIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [loopCount, setLoopCount] = useState(1);
@@ -82,18 +78,11 @@ const App = () => {
   const [reciter, setReciter] = useState(RECITERS[0].id);
   const [tafsir, setTafsir] = useState(null);
   const [showTafsir, setShowTafsir] = useState(false);
-  const [mode, setMode] = useState('manual'); // 'manual' or 'listen'
-  
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-
-  const [isQuickMasterModalOpen, setIsQuickMasterModalOpen] = useState(false);
-  const [selectedQuickMasterIds, setSelectedQuickMasterIds] = useState([]);
 
   const audioRef = useRef(new Audio());
   const abortControllerRef = useRef(null);
 
+  // Authentication Setup (Rule 3)
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -121,9 +110,11 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  // Firestore Sync (Rule 1 & 2)
   useEffect(() => {
     if (!user) return;
-    const docRef = doc(db, 'users', user.uid, 'data', 'progress');
+    
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'memorization');
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         setMemorizedAyahs(docSnap.data().ayahs || {});
@@ -131,17 +122,19 @@ const App = () => {
     }, (error) => {
       console.error("Firestore sync error:", error);
     });
+    
     return () => unsubscribe();
   }, [user]);
 
   const updateMemorizedData = async (newData) => {
     setMemorizedAyahs(newData);
     if (user) {
-      const docRef = doc(db, 'users', user.uid, 'data', 'progress');
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'memorization');
       await setDoc(docRef, { ayahs: newData }, { merge: true });
     }
   };
 
+  // Fetch Surah List
   useEffect(() => {
     fetch(`${API_BASE}/surah`)
       .then(res => res.json())
@@ -151,6 +144,7 @@ const App = () => {
       });
   }, []);
 
+  // Fetch Ayahs when a Surah is selected
   useEffect(() => {
     if (!selectedSurah) return;
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -166,23 +160,13 @@ const App = () => {
         const english = data.data[1].ayahs;
         const audio = data.data[2].ayahs;
         
-        const fetchedAyahs = arabic.map((ayah, i) => ({
+        setAyahs(arabic.map((ayah, i) => ({
           number: ayah.numberInSurah,
           text: i === 0 ? stripBismillah(ayah.text, selectedSurah.number) : ayah.text,
           translation: english[i].text,
           audio: audio[i].audio
-        }));
-        
-        setAyahs(fetchedAyahs);
-
-        // Find the earliest unmastered ayah
-        const firstUnmasteredIndex = fetchedAyahs.findIndex(
-          a => !memorizedAyahs[`${selectedSurah.number}:${a.number}`]
-        );
-
-        // Start at unmastered index if it exists, otherwise start at 0
-        setActiveAyahIndex(firstUnmasteredIndex !== -1 ? firstUnmasteredIndex : 0);
-        
+        })));
+        setActiveAyahIndex(0);
         setLoading(false);
       })
       .catch(err => {
@@ -190,38 +174,25 @@ const App = () => {
       });
   }, [selectedSurah, reciter]);
 
+  // Handle Audio Looping (Single Ayah Only)
   useEffect(() => {
     const audio = audioRef.current;
     const handleEnded = () => {
-      if (mode === 'listen') {
-        if (activeAyahIndex < ayahs.length - 1) {
-          setActiveAyahIndex(prev => prev + 1);
-        } else {
-          setIsPlaying(false);
-        }
+      if (currentLoop < loopCount) {
+        setCurrentLoop(prev => prev + 1);
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
       } else {
-        setCurrentLoop(prevLoop => {
-          if (prevLoop < loopCount) {
-            audio.currentTime = 0;
-            setTimeout(() => {
-              audio.play().catch(e => console.log("Mobile playback error:", e));
-            }, 50);
-            return prevLoop + 1;
-          } else {
-            setIsPlaying(false);
-            return 1;
-          }
-        });
+        // We removed the logic that increments activeAyahIndex
+        setCurrentLoop(1);
+        setIsPlaying(false);
       }
     };
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [loopCount, mode, activeAyahIndex, ayahs]);
+  }, [currentLoop, loopCount]); // Removed activeAyahIndex and ayahs from dependencies
   
-  useEffect(() => {
-    audioRef.current.volume = volume;
-  }, [volume]);
-
+  // Load new audio source when Ayah changes
   useEffect(() => {
     if (ayahs[activeAyahIndex]) {
       const audio = audioRef.current;
@@ -242,22 +213,6 @@ const App = () => {
     setIsPlaying(!isPlaying);
   };
 
-  const handleSeek = (e) => {
-    const time = Number(e.target.value);
-    audioRef.current.currentTime = time;
-    setCurrentTime(time);
-  };
-
-  // New: Handle jumping to a specific verse
-  const jumpToVerse = (e) => {
-    e.preventDefault();
-    const verseNum = parseInt(verseSearch);
-    if (!isNaN(verseNum) && verseNum > 0 && verseNum <= ayahs.length) {
-      setActiveAyahIndex(verseNum - 1);
-      setVerseSearch("");
-    }
-  };
-
   const filteredSurahs = useMemo(() => 
     surahs.filter(s => 
       s.englishName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -267,44 +222,22 @@ const App = () => {
     [surahs, searchQuery]
   );
 
-  const toggleQuickMasterId = (id) => {
-    setSelectedQuickMasterIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const handleQuickMaster = async () => {
-    if (selectedQuickMasterIds.length === 0) return;
-    setLoading(true);
-    try {
-      let newMemorized = { ...memorizedAyahs };
-      for (const surahId of selectedQuickMasterIds) {
-        const response = await fetch(`${API_BASE}/surah/${surahId}/editions/quran-uthmani`);
-        const data = await response.json();
-        const surahAyahs = data.data[0].ayahs;
-        surahAyahs.forEach(ayah => {
-          newMemorized[`${surahId}:${ayah.numberInSurah}`] = true;
-        });
-      }
-      await updateMemorizedData(newMemorized);
-      setSelectedQuickMasterIds([]);
-      setIsQuickMasterModalOpen(false);
-    } catch (e) {
-      console.error("Quick master failed", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Logic to find the surah closest to being finished
   const resumeSurah = useMemo(() => {
     if (surahs.length === 0) return null;
+    
     const candidates = surahs.map(s => {
       const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
       const percentage = (masteredCount / s.numberOfAyahs) * 100;
       return { ...s, mastery: percentage, remaining: s.numberOfAyahs - masteredCount };
     });
+
+    // Filter for surahs that have progress but aren't 100% complete
     const inProgress = candidates.filter(c => c.mastery > 0 && c.mastery < 100);
+    
     if (inProgress.length === 0) return null;
+
+    // Sort by highest mastery first, then by least remaining ayahs
     return inProgress.sort((a, b) => {
       if (b.mastery !== a.mastery) return b.mastery - a.mastery;
       return a.remaining - b.remaining;
@@ -319,46 +252,44 @@ const App = () => {
 
   if (view === 'loading') {
     return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3]">
-        <div className="relative">
-            <Loader2 className="animate-spin text-[#1e3a31]" size={64} strokeWidth={1} />
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] pattern-bg">
+        <div className="relative tz-animate-float">
+            <div className="absolute inset-0 rounded-full" style={{animation:'tz-pulse-ring 2s ease-out infinite'}}><div className="w-full h-full rounded-full border-2 border-[#c29b40]/30"></div></div>
+            <div className="absolute inset-[-12px] rounded-full" style={{animation:'tz-pulse-ring 2s ease-out 0.5s infinite'}}><div className="w-full h-full rounded-full border border-[#c29b40]/15"></div></div>
+            <Loader2 className="text-[#1e3a31]" size={64} strokeWidth={1} style={{animation:'tz-spin-slow 3s linear infinite'}} />
             <BookOpen className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#c29b40]" size={24} />
         </div>
-        <p className="text-[#1e3a31] font-heading mt-4 tracking-widest uppercase text-xs">TanzeelLite</p>
+        <p className="text-[#1e3a31] font-heading mt-6 tracking-[0.3em] uppercase text-xs tz-animate-in tz-stagger-2">TanzeelLite</p>
+        <div className="h-px w-16 tz-shimmer-bar mt-3 rounded-full"></div>
       </div>
     );
   }
 
   if (view === 'auth') {
     return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] p-6 pattern-bg">
-        <div className="w-full max-md bg-white rounded-[2rem] border-t-8 border-[#c29b40] shadow-2xl p-10 text-center space-y-8">
-          <div className="w-24 h-24 bg-[#1e3a31] rounded-full flex items-center justify-center mx-auto shadow-inner">
-            <BookOpen size={48} className="text-[#c29b40]" />
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] p-6 pattern-bg relative overflow-hidden">
+        <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] bg-[#c29b40]/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-[-20%] left-[-10%] w-[400px] h-[400px] bg-[#1e3a31]/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="w-full max-w-md tz-glass rounded-[2.5rem] border border-[#e8dfca] shadow-2xl p-10 text-center space-y-8 tz-animate-scale relative">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-1 bg-gradient-to-r from-transparent via-[#c29b40] to-transparent rounded-full"></div>
+          <div className="w-24 h-24 tz-hero-gradient rounded-full flex items-center justify-center mx-auto tz-animate-glow tz-animate-in">
+            <BookOpen size={44} className="text-[#c29b40]" />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3 tz-animate-in tz-stagger-1">
             <h1 className="text-4xl font-heading text-[#1e3a31]">TanzeelLite</h1>
-            <div className="h-px w-24 bg-[#c29b40] mx-auto"></div>
-            <p className="text-slate-500 font-light">Your modern path to traditional mastery</p>
+            <div className="h-px w-24 bg-gradient-to-r from-transparent via-[#c29b40] to-transparent mx-auto"></div>
+            <p className="text-[#8b7d6b] font-light font-body italic">Your modern path to traditional mastery</p>
           </div>
-          <div className="space-y-4 pt-4">
+          <div className="space-y-4 pt-4 tz-animate-in tz-stagger-3">
             <button 
-              onClick={async () => {
-                const provider = new GoogleAuthProvider();
-                provider.setCustomParameters({ prompt: 'select_account' }); 
-                try {
-                  await signInWithPopup(auth, provider);
-                } catch (e) {
-                  console.error("Login failed:", e);
-                }
-              }} 
-              className="w-full py-4 bg-[#1e3a31] text-white rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-[#2a4e42] transition-all shadow-lg shadow-emerald-900/20"
+              onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} 
+              className="w-full py-4 tz-hero-gradient text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:brightness-110 transition-all shadow-lg shadow-emerald-900/20 tz-btn-glow"
             >
               <LogIn size={20} className="text-[#c29b40]" /> Continue with Google
             </button>
             <button 
               onClick={() => setView('menu')} 
-              className="w-full py-4 bg-transparent border-2 border-slate-100 text-slate-400 rounded-xl font-bold hover:bg-slate-50 transition-all"
+              className="w-full py-4 bg-transparent border-2 border-[#e8dfca] text-[#8b7d6b] rounded-2xl font-bold hover:bg-[#faf7f0] hover:border-[#c29b40]/40 transition-all"
             >
               Start as Guest
             </button>
@@ -370,48 +301,40 @@ const App = () => {
 
   if (view === 'menu') {
     return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] p-6 pattern-bg">
-        <div className="w-full max-w-lg space-y-12">
-          <div className="text-center space-y-4">
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] p-6 pattern-bg relative overflow-hidden">
+        <div className="absolute top-[10%] left-[5%] w-[300px] h-[300px] bg-[#c29b40]/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-[10%] right-[5%] w-[250px] h-[250px] bg-[#1e3a31]/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="w-full max-w-lg space-y-12 relative z-10">
+          <div className="text-center space-y-4 tz-animate-in">
             <div className="flex justify-center mb-4">
-                <div className="h-1 w-12 bg-[#c29b40]"></div>
+                <div className="h-1 w-16 bg-gradient-to-r from-transparent via-[#c29b40] to-transparent rounded-full"></div>
             </div>
             <h1 className="text-5xl font-heading text-[#1e3a31] tracking-tight">Assalamualaikum</h1>
-            <p className="text-[#8b7d6b] italic font-light text-lg">"If Allah permits it, you will one day memorise the Quran!"</p>
+            <p className="text-[#8b7d6b] italic font-light text-lg font-body">"If Allah permits it, you will one day memorise the Quran!"</p>
           </div>
           
-          <div className="space-y-4">
-            <button onClick={() => { setMode('manual'); setView('browser'); }} className="w-full group p-8 bg-[#1e3a31] rounded-[2rem] text-white flex items-center justify-between transition-all hover:translate-y-[-4px] shadow-xl shadow-emerald-900/30">
+          <div className="space-y-5">
+            <button onClick={() => setView('browser')} className="w-full group p-8 tz-hero-gradient rounded-[2rem] text-white flex items-center justify-between tz-card-hover shadow-xl shadow-emerald-900/30 tz-animate-in tz-stagger-1 tz-btn-glow">
               <div className="text-left">
-                <h3 className="text-2xl font-heading mb-1">Begin Journey</h3>
+                <h3 className="text-2xl font-heading mb-1 group-hover:translate-x-1 transition-transform">Begin Journey</h3>
                 <p className="text-emerald-100/60 text-sm font-light">Browse through the Sacred Verses</p>
               </div>
-              <div className="p-4 bg-[#c29b40] rounded-full text-[#1e3a31]">
+              <div className="p-4 bg-[#c29b40] rounded-full text-[#1e3a31] group-hover:scale-110 transition-transform shadow-lg">
                 <PlayCircle size={32} />
               </div>
             </button>
 
-            <button onClick={() => { setMode('listen'); setView('browser'); }} className="w-full group p-8 bg-[#c29b40] rounded-[2rem] text-[#1e3a31] flex items-center justify-between transition-all hover:translate-y-[-4px] shadow-xl shadow-yellow-900/20">
+            <button onClick={() => setView('how-to')} className="w-full p-8 tz-glass border border-[#e8dfca] rounded-[2rem] text-[#1e3a31] flex items-center justify-between tz-card-hover tz-animate-in tz-stagger-2">
               <div className="text-left">
-                <h3 className="text-2xl font-heading mb-1">Listen</h3>
-                <p className="text-[#1e3a31]/60 text-sm font-light">Continuous Surah Playback</p>
-              </div>
-              <div className="p-4 bg-[#1e3a31] rounded-full text-[#c29b40]">
-                <Headphones size={32} />
-              </div>
-            </button>
-
-            <button onClick={() => setView('how-to')} className="w-full p-8 bg-white border border-[#e8dfca] rounded-[2rem] text-[#1e3a31] flex items-center justify-between transition-all hover:bg-[#faf7f0]">
-              <div className="text-left">
-                <h3 className="text-2xl font-heading mb-1">Manual</h3>
-                <p className="text-slate-500 text-sm font-light">Guidelines for memorization</p>
+                <h3 className="text-2xl font-heading mb-1 group-hover:translate-x-1 transition-transform">Manual</h3>
+                <p className="text-[#8b7d6b] text-sm font-light">Guidelines for memorization</p>
               </div>
               <HelpCircle size={32} className="text-[#c29b40]" />
             </button>
           </div>
           
           {user && (
-            <button onClick={() => signOut(auth)} className="w-full py-2 text-[#c29b40] text-xs font-bold hover:underline tracking-widest uppercase">
+            <button onClick={() => signOut(auth)} className="w-full py-2 text-[#c29b40] text-xs font-bold hover:underline tracking-[0.3em] uppercase tz-animate-in tz-stagger-4">
               Sign Out
             </button>
           )}
@@ -422,29 +345,30 @@ const App = () => {
 
   if (view === 'how-to') {
     return (
-      <div className="min-h-screen w-full flex flex-col items-center bg-[#fdfaf3] p-6 pt-20 pattern-bg">
-        <div className="w-full max-w-2xl bg-white rounded-[3rem] p-10 shadow-2xl relative border border-[#e8dfca]">
-          <button onClick={() => setView('menu')} className="absolute top-8 right-8 p-2 bg-[#fdfaf3] rounded-full text-[#1e3a31] hover:text-[#c29b40]">
+      <div className="min-h-screen w-full flex flex-col items-center bg-[#fdfaf3] p-6 pt-20 pattern-bg relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-[#c29b40]/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="w-full max-w-2xl tz-glass rounded-[3rem] p-10 shadow-2xl relative border border-[#e8dfca] tz-animate-scale">
+          <button onClick={() => setView('menu')} className="absolute top-8 right-8 p-2.5 bg-[#fdfaf3] rounded-full text-[#1e3a31] hover:text-[#c29b40] hover:rotate-90 transition-all duration-300">
             <X size={20} />
           </button>
           <h2 className="text-3xl font-heading text-[#1e3a31] mb-8 border-b border-[#e8dfca] pb-4">Memorization Guide</h2>
           <div className="space-y-8 text-[#5c5346] leading-relaxed">
-            <section className="flex gap-4">
-                <div className="h-8 w-8 rounded-full bg-[#1e3a31] text-[#c29b40] flex items-center justify-center shrink-0 font-bold">1</div>
+            <section className="flex gap-4 tz-animate-slide-up tz-stagger-1">
+                <div className="h-9 w-9 rounded-full tz-hero-gradient text-[#c29b40] flex items-center justify-center shrink-0 font-bold text-sm shadow-md">1</div>
                 <div>
                     <h4 className="font-bold text-[#1e3a31] mb-1">Repetition (Tikrar)</h4>
                     <p className="font-light">Use the 3x, 5x, or 10x loop modes. Listen until the rhythm of the verse feels natural to your tongue.</p>
                 </div>
             </section>
-            <section className="flex gap-4">
-                <div className="h-8 w-8 rounded-full bg-[#1e3a31] text-[#c29b40] flex items-center justify-center shrink-0 font-bold">2</div>
+            <section className="flex gap-4 tz-animate-slide-up tz-stagger-2">
+                <div className="h-9 w-9 rounded-full tz-hero-gradient text-[#c29b40] flex items-center justify-center shrink-0 font-bold text-sm shadow-md">2</div>
                 <div>
-                    <h4 className="font-bold text-[#1e3a31] mb-1">Listen Mode</h4>
-                    <p className="font-light">Switch to Listen mode to hear a Surah from start to finish without interruptions, perfect for revision.</p>
+                    <h4 className="font-bold text-[#1e3a31] mb-1">Visualization</h4>
+                    <p className="font-light">Hide the text and try to recite. If you stumble, reveal the text for a second, then hide it again.</p>
                 </div>
             </section>
           </div>
-          <button onClick={() => { setMode('manual'); setView('browser'); }} className="w-full mt-10 py-4 bg-[#1e3a31] text-white rounded-2xl font-bold shadow-lg shadow-emerald-900/20">Understood</button>
+          <button onClick={() => setView('browser')} className="w-full mt-10 py-4 tz-hero-gradient text-white rounded-2xl font-bold shadow-lg shadow-emerald-900/20 hover:brightness-110 transition-all tz-btn-glow">Understood</button>
         </div>
       </div>
     );
@@ -452,7 +376,7 @@ const App = () => {
 
   return (
     <div className="w-full min-h-screen bg-[#fdfaf3] text-[#1e3a31] font-sans flex flex-col items-center">
-      <header className="w-full bg-white border-b border-[#e8dfca] p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4">
+      <header className="w-full tz-glass border-b border-[#e8dfca] p-6 flex flex-col md:flex-row justify-between items-center px-8 shadow-sm gap-4 sticky top-0 z-30">
         {!selectedSurah ? (
           <>
             <div className="flex items-center gap-4 w-full md:w-auto">
@@ -466,7 +390,7 @@ const App = () => {
               <input 
                 type="text" 
                 placeholder="Search Surah (Name or Number)..." 
-                className="w-full bg-[#fdfaf3] border border-[#e8dfca] rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#c29b40]/20 transition-all" 
+                className="w-full bg-[#fdfaf3]/80 border border-[#e8dfca] rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#c29b40]/30 focus:border-[#c29b40]/40 transition-all duration-300" 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
               />
@@ -485,19 +409,6 @@ const App = () => {
             <button onClick={() => { setSelectedSurah(null); setIsPlaying(false); audioRef.current.pause(); }} className="flex items-center gap-2 text-[#8b7d6b] hover:text-[#1e3a31] transition-colors">
               <ChevronLeft size={24} /> <span className="font-heading text-lg">Return to Library</span>
             </button>
-            
-            {/* New: Verse Search Header Element */}
-            <form onSubmit={jumpToVerse} className="relative w-40">
-              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-[#c29b40]" size={14} />
-              <input 
-                type="text"
-                placeholder="Jump to..."
-                className="w-full bg-[#fdfaf3] border border-[#e8dfca] rounded-xl py-2 pl-9 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#c29b40]/20"
-                value={verseSearch}
-                onChange={(e) => setVerseSearch(e.target.value)}
-              />
-            </form>
-
             <div className="text-right border-l-2 border-[#c29b40] pl-4">
                <h2 className="font-heading text-xl text-[#1e3a31]">{selectedSurah.englishName}</h2>
                <p className="text-[10px] text-[#8b7d6b] uppercase tracking-widest font-bold">Ayah {activeAyahIndex + 1} / {selectedSurah.numberOfAyahs}</p>
@@ -517,36 +428,7 @@ const App = () => {
       <main className="w-full max-w-6xl flex-1 flex flex-col items-center justify-center p-6 text-center">
         {!selectedSurah ? (
           <div className="w-full">
-            {!searchQuery && (
-              <div className="w-full mb-12 bg-white/50 border border-[#e8dfca] rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-                <div className="text-left">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FastForward size={16} className="text-[#c29b40]" />
-                    <span className="text-[10px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Quick Mastery</span>
-                  </div>
-                  <h3 className="text-xl font-heading text-[#1e3a31]">Skip to Full Mastery</h3>
-                  <p className="text-[#8b7d6b] text-xs font-light">Already know a Surah? Mark multiple as finished instantly.</p>
-                </div>
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                  <button 
-                    onClick={() => setIsQuickMasterModalOpen(true)}
-                    className="flex-1 md:w-64 bg-[#fdfaf3] border border-[#e8dfca] rounded-xl px-4 py-3 text-sm text-[#8b7d6b] text-left flex items-center justify-between group hover:border-[#c29b40] transition-all"
-                  >
-                    <span>{selectedQuickMasterIds.length > 0 ? `${selectedQuickMasterIds.length} Surahs Selected` : "Select Surahs..."}</span>
-                    <ChevronRight size={18} className="text-[#c29b40] group-hover:translate-x-1 transition-transform" />
-                  </button>
-                  <button 
-                    onClick={handleQuickMaster}
-                    disabled={selectedQuickMasterIds.length === 0 || loading}
-                    className="px-6 py-3 bg-[#1e3a31] text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#2a4e42] transition-all disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                    Confirm
-                  </button>
-                </div>
-              </div>
-            )}
-
+            {/* CONTINUE JOURNEY SECTION */}
             {resumeSurah && !searchQuery && (
               <div className="w-full mb-12 text-left animate-in fade-in slide-in-from-top-4 duration-700">
                 <div className="flex items-center gap-2 mb-4">
@@ -555,14 +437,16 @@ const App = () => {
                 </div>
                 <button 
                   onClick={() => setSelectedSurah(resumeSurah)}
-                  className="w-full bg-[#1e3a31] rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between group relative overflow-hidden shadow-2xl shadow-emerald-900/40 border border-[#c29b40]/30"
+                  className="w-full tz-hero-gradient rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between group relative overflow-hidden shadow-2xl shadow-emerald-900/40 border border-[#c29b40]/30 tz-animate-glow"
                 >
                   <div className="absolute top-0 right-0 w-64 h-64 bg-[#c29b40]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+                  
                   <div className="relative z-10 space-y-3 md:space-y-1 text-center md:text-left">
                     <p className="text-[#c29b40] text-[10px] font-bold tracking-widest uppercase">Almost there • {resumeSurah.remaining} Ayahs left</p>
                     <h2 className="text-3xl md:text-4xl font-heading text-white">{resumeSurah.englishName}</h2>
                     <p className="text-emerald-100/40 text-xs font-light tracking-wide">{resumeSurah.englishNameTranslation} • Surah {resumeSurah.number}</p>
                   </div>
+
                   <div className="flex flex-col items-center md:items-end gap-4 mt-6 md:mt-0 relative z-10">
                     <div className="flex items-baseline gap-1">
                       <span className="text-4xl font-heading text-[#c29b40]">{Math.round(resumeSurah.mastery)}</span>
@@ -588,14 +472,15 @@ const App = () => {
                     const masteredCount = Object.keys(memorizedAyahs).filter(key => key.startsWith(`${s.number}:`)).length;
                     const surahMastery = Math.round((masteredCount / totalAyahs) * 100);
                     const isFullyMastered = surahMastery === 100;
+
                     return (
                       <button 
                         key={s.number} 
                         onClick={() => setSelectedSurah(s)} 
-                        className={`p-6 border-b-4 transition-all text-left flex justify-between items-center group relative overflow-hidden rounded-2xl shadow-sm hover:shadow-md ${
+                        className={`p-6 border-b-4 text-left flex justify-between items-center group relative overflow-hidden rounded-2xl tz-card-hover ${
                           isFullyMastered 
-                          ? 'bg-[#1e3a31] border-[#c29b40] text-white shadow-emerald-900/20' 
-                          : 'bg-white border-[#e8dfca] hover:border-[#c29b40] text-[#1e3a31]'
+                          ? 'tz-hero-gradient border-[#c29b40] text-white shadow-lg shadow-emerald-900/20' 
+                          : 'bg-white border-[#e8dfca] hover:border-[#c29b40] text-[#1e3a31] shadow-sm'
                         }`}
                       >
                         <div className="flex flex-col relative z-10">
@@ -631,8 +516,9 @@ const App = () => {
           </div>
         ) : (
           <div className="w-full space-y-12 py-6">
-            <div className="relative p-10 md:p-16 bg-[#fffcf5] rounded-[3rem] border border-[#e8dfca] shadow-inner overflow-hidden mx-auto max-w-5xl">
+            <div className="relative p-10 md:p-16 tz-ayah-area rounded-[3rem] border border-[#e8dfca] shadow-inner overflow-hidden mx-auto max-w-5xl tz-animate-scale">
               <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none pattern-bg"></div>
+              
               <div className="relative flex flex-col items-center justify-center space-y-10">
                 {activeAyahIndex === 0 && selectedSurah.number !== 1 && selectedSurah.number !== 9 && (
                   <div className="flex items-center gap-6 text-[#c29b40]/60 mb-2">
@@ -641,15 +527,18 @@ const App = () => {
                     <div className="h-px w-10 bg-current opacity-30"></div>
                   </div>
                 )}
+                
                 <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
                   <p className="font-arabic text-2xl md:text-4xl leading-[2.5] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
-                    {ayahs[activeAyahIndex]?.text}
-                  </p>
+  {ayahs[activeAyahIndex]?.text}
+</p>
+                  
                   <div className="flex justify-center items-center gap-4 my-8">
                     <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
                     <div className="w-1.5 h-1.5 rotate-45 border border-[#c29b40]"></div>
                     <div className="h-px w-10 bg-gradient-to-l from-transparent to-[#c29b40]/40"></div>
                   </div>
+
                   <p className="text-[#5c5346] text-xl md:text-2xl font-body italic max-w-4xl mx-auto leading-[1.6] px-4">
                     "{ayahs[activeAyahIndex]?.translation}"
                   </p>
@@ -662,44 +551,30 @@ const App = () => {
                 <button onClick={() => setIsTextHidden(!isTextHidden)} className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isTextHidden ? 'bg-[#c29b40] text-[#1e3a31] shadow-lg scale-110' : 'bg-white border border-[#e8dfca] text-[#1e3a31] hover:bg-[#faf7f0]'}`}>
                   {isTextHidden ? <Eye size={32} /> : <EyeOff size={32} />}
                 </button>
-                <div className="flex flex-col gap-4">
-                    <div className="flex items-center bg-[#1e3a31] rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20">
-                    <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
-                    <button onClick={togglePlay} className="w-24 h-24 bg-[#c29b40] text-[#1e3a31] rounded-full flex items-center justify-center shadow-lg hover:brightness-110 transition-all transform active:scale-95">
-                        {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
-                    </button>
-                    <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
-                    </div>
+
+                <div className="flex items-center tz-hero-gradient rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20 tz-animate-in tz-stagger-2">
+                  <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
+                  <button onClick={togglePlay} className="w-24 h-24 bg-[#c29b40] text-[#1e3a31] rounded-full flex items-center justify-center shadow-lg hover:brightness-110 transition-all transform active:scale-95 tz-btn-glow">
+                    {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
+                  </button>
+                  <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
                 </div>
+
                 <button onClick={() => { audioRef.current.currentTime = 0; audioRef.current.play(); setIsPlaying(true); }} className="w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center text-[#1e3a31] hover:bg-[#faf7f0]">
                   <RotateCcw size={32} />
                 </button>
               </div>
 
-              <div className="w-full max-w-xl flex flex-col items-center gap-2 group">
-                 <div className="flex justify-between w-full text-[10px] font-bold text-[#8b7d6b] uppercase tracking-widest">
-                    <span>{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
-                    {mode !== 'listen' && <span>Iteration {currentLoop}/{loopCount}</span>}
-                    <span>{new Date(duration * 1000).toISOString().substr(14, 5)}</span>
-                 </div>
-                 <input 
-                    type="range" min="0" max={duration || 0} value={currentTime} onChange={handleSeek}
-                    className="w-full accent-[#c29b40] h-1.5 cursor-pointer rounded-full bg-[#e8dfca] appearance-none"
-                 />
-              </div>
-
-              {mode !== 'listen' && (
-                <div className="flex flex-col items-center gap-5">
-                  <span className="text-[11px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Ayah Iterations</span>
-                  <div className="flex bg-[#1e3a31]/5 p-2 rounded-2xl border border-[#e8dfca]">
-                    {[1, 3, 5, 10].map(count => (
-                      <button key={count} onClick={() => setLoopCount(count)} className={`px-10 py-3 rounded-xl text-sm font-bold transition-all ${loopCount === count ? 'bg-[#1e3a31] text-white shadow-md' : 'text-[#1e3a31]/40 hover:text-[#1e3a31]'}`}>
-                        {count}x
-                      </button>
-                    ))}
-                  </div>
+              <div className="flex flex-col items-center gap-5">
+                <span className="text-[11px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Ayah Iterations</span>
+                <div className="flex bg-[#1e3a31]/5 p-2 rounded-2xl border border-[#e8dfca]">
+                  {[1, 3, 5, 10].map(count => (
+                    <button key={count} onClick={() => setLoopCount(count)} className={`px-10 py-3 rounded-xl text-sm font-bold transition-all ${loopCount === count ? 'bg-[#1e3a31] text-white shadow-md' : 'text-[#1e3a31]/40 hover:text-[#1e3a31]'}`}>
+                      {count}x
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-8 w-full max-w-2xl mx-auto pt-10">
@@ -710,7 +585,7 @@ const App = () => {
                   if (next[key]) delete next[key]; else next[key] = true;
                   updateMemorizedData(next);
                 }}
-                className={`flex flex-col items-center gap-3 py-8 rounded-[2.5rem] font-heading transition-all border-2 ${memorizedAyahs[`${selectedSurah.number}:${ayahs[activeAyahIndex]?.number}`] ? 'bg-[#1e3a31] border-[#c29b40] text-[#c29b40]' : 'bg-white border-[#e8dfca] text-[#1e3a31] hover:border-[#c29b40]'}`}
+                className={`flex flex-col items-center gap-3 py-8 rounded-[2.5rem] font-heading transition-all duration-300 border-2 tz-card-hover ${memorizedAyahs[`${selectedSurah.number}:${ayahs[activeAyahIndex]?.number}`] ? 'tz-hero-gradient border-[#c29b40] text-[#c29b40] shadow-lg' : 'bg-white border-[#e8dfca] text-[#1e3a31] hover:border-[#c29b40]'}`}
               >
                 <CheckCircle2 size={28} />
                 <span className="text-sm font-bold uppercase tracking-widest">
@@ -726,7 +601,7 @@ const App = () => {
                     .then(r => r.json())
                     .then(d => setTafsir(d.data.text)); 
                 }} 
-                className="flex flex-col items-center gap-3 py-8 rounded-[2.5rem] bg-white border-2 border-[#e8dfca] text-[#1e3a31] font-heading hover:border-[#c29b40] transition-all"
+                className="flex flex-col items-center gap-3 py-8 rounded-[2.5rem] bg-white border-2 border-[#e8dfca] text-[#1e3a31] font-heading hover:border-[#c29b40] transition-all duration-300 tz-card-hover"
               >
                 <BookOpen size={28} className="text-[#c29b40]" />
                 <span className="text-sm font-bold uppercase tracking-widest">View Tafsir</span>
@@ -737,67 +612,17 @@ const App = () => {
       </main>
 
       {selectedSurah && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#1e3a31] text-white px-8 py-4 rounded-full shadow-2xl flex items-center gap-6 border border-[#c29b40]/30 z-20 backdrop-blur-sm bg-opacity-95">
-          <div className="flex items-center gap-3 border-r border-white/10 pr-6">
-            <button onClick={() => setVolume(v => v === 0 ? 1 : 0)} className="text-[#c29b40]">
-                {volume === 0 ? <VolumeX size={20} /> : volume < 0.5 ? <Volume1 size={20} /> : <Volume2 size={20} />}
-            </button>
-            <input 
-                type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))}
-                className="w-20 accent-[#c29b40] h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
-            />
-          </div>
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 tz-glass-dark text-white px-10 py-4 rounded-full shadow-2xl flex items-center gap-6 border border-[#c29b40]/30 z-20">
+          <Volume2 size={22} className="text-[#c29b40]" />
           <select value={reciter} onChange={(e) => setReciter(e.target.value)} className="bg-transparent text-sm font-heading focus:outline-none appearance-none cursor-pointer pr-4">
             {RECITERS.map(r => <option key={r.id} value={r.id} className="text-slate-900">{r.name}</option>)}
           </select>
         </div>
       )}
 
-      {isQuickMasterModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#1e3a31]/90 backdrop-blur-md">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border-t-[12px] border-[#c29b40]">
-            <div className="p-8 border-b border-[#e8dfca] flex justify-between items-center bg-[#fdfaf3]">
-              <div>
-                <h3 className="font-heading text-2xl text-[#1e3a31]">Multi-Master Surahs</h3>
-                <p className="text-[#8b7d6b] text-xs font-bold uppercase tracking-widest mt-1">Select all the Surahs you have memorized</p>
-              </div>
-              <button onClick={() => setIsQuickMasterModalOpen(false)} className="p-3 bg-white border border-[#e8dfca] rounded-full text-[#1e3a31] hover:text-[#c29b40] transition-colors shadow-sm"><X size={24}/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-8 bg-[#fdfaf3]/50">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {surahs.map(s => {
-                  const isSelected = selectedQuickMasterIds.includes(s.number);
-                  return (
-                    <button key={s.number} onClick={() => toggleQuickMasterId(s.number)} className={`p-4 rounded-2xl text-left transition-all border-2 flex items-center justify-between group ${isSelected ? 'bg-[#1e3a31] border-[#c29b40] text-white' : 'bg-white border-[#e8dfca] text-[#1e3a31] hover:border-[#c29b40]/50'}`}>
-                      <div className="flex flex-col">
-                        <span className={`text-[10px] font-black uppercase ${isSelected ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>Surah {s.number}</span>
-                        <span className="font-heading text-sm truncate">{s.englishName}</span>
-                      </div>
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-[#c29b40] border-[#c29b40]' : 'border-[#e8dfca]'}`}>{isSelected && <Check size={14} className="text-[#1e3a31]" strokeWidth={4} />}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="p-8 border-t border-[#e8dfca] bg-white flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="text-left">
-                <p className="text-sm font-bold text-[#1e3a31]">{selectedQuickMasterIds.length} Surahs Selected</p>
-                <p className="text-[10px] text-[#8b7d6b] uppercase tracking-wider">This action will mark every ayah in these surahs as mastered.</p>
-              </div>
-              <div className="flex gap-4 w-full md:w-auto">
-                <button onClick={() => setSelectedQuickMasterIds([])} className="flex-1 md:px-8 py-4 border-2 border-[#e8dfca] text-[#8b7d6b] rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all">Clear All</button>
-                <button onClick={handleQuickMaster} disabled={selectedQuickMasterIds.length === 0 || loading} className="flex-[2] md:px-12 py-4 bg-[#1e3a31] text-[#c29b40] rounded-2xl font-bold text-xs uppercase tracking-widest shadow-xl shadow-emerald-900/20 disabled:opacity-50 flex items-center justify-center gap-3">
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Confirm Mastery
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showTafsir && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-emerald-950/80 backdrop-blur-md">
-          <div className="bg-white w-full max-w-3xl rounded-[4rem] p-12 shadow-2xl border-t-[12px] border-[#c29b40]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-emerald-950/80 backdrop-blur-xl" style={{animation:'tz-fadeIn 0.3s ease-out'}}>
+          <div className="bg-white w-full max-w-3xl rounded-[4rem] p-12 shadow-2xl border-t-[12px] border-[#c29b40] tz-animate-scale">
             <div className="flex justify-between items-center mb-10">
               <h3 className="font-heading text-3xl text-[#1e3a31]">Deep Reflection</h3>
               <button onClick={() => setShowTafsir(false)} className="p-2 hover:bg-[#faf7f0] rounded-full"><X size={32}/></button>
@@ -805,20 +630,76 @@ const App = () => {
             <div className="max-h-[50vh] overflow-y-auto text-[#5c5346] leading-[1.8] text-2xl font-body italic pr-8 custom-scrollbar">
                 {tafsir}
             </div>
-            <button onClick={() => setShowTafsir(false)} className="w-full mt-12 py-6 bg-[#1e3a31] text-[#c29b40] rounded-3xl font-bold tracking-[0.2em] uppercase text-sm shadow-xl">Close Reflection</button>
+            <button onClick={() => setShowTafsir(false)} className="w-full mt-12 py-6 tz-hero-gradient text-[#c29b40] rounded-3xl font-bold tracking-[0.2em] uppercase text-sm shadow-xl hover:brightness-110 transition-all tz-btn-glow">Close Reflection</button>
           </div>
         </div>
       )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Scheherazade+New:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Cinzel:wght@400;700;900&display=swap');
-        .font-arabic { font-family: 'Scheherazade New', serif; word-spacing: 0.15em; letter-spacing: 0.05em; line-height: 2.8; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+
+        * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+        
+        .font-arabic { 
+          font-family: 'Scheherazade New', serif;
+          word-spacing: 0.25em;
+          letter-spacing: 0.1em;
+          line-height: 2.5;
+        }
         .font-body { font-family: 'Playfair Display', serif; }
         .font-heading { font-family: 'Cinzel', serif; }
-        .pattern-bg { background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l15 30-15 30L15 30z' fill='%23c29b40' fill-opacity='0.05' fill-rule='evenodd'/%3E%3C/svg%3E"); }
+
+        .pattern-bg {
+          background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l15 30-15 30L15 30z' fill='%23c29b40' fill-opacity='0.05' fill-rule='evenodd'/%3E%3C/svg%3E");
+        }
+
+        @keyframes tz-fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes tz-scaleIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+        @keyframes tz-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+        @keyframes tz-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes tz-glow { 0%, 100% { box-shadow: 0 0 20px rgba(194,155,64,0.15); } 50% { box-shadow: 0 0 40px rgba(194,155,64,0.35); } }
+        @keyframes tz-spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes tz-pulse-ring { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(1.6); opacity: 0; } }
+        @keyframes tz-slide-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+        .tz-animate-in { animation: tz-fadeIn 0.6s ease-out both; }
+        .tz-animate-scale { animation: tz-scaleIn 0.5s ease-out both; }
+        .tz-animate-float { animation: tz-float 4s ease-in-out infinite; }
+        .tz-animate-glow { animation: tz-glow 3s ease-in-out infinite; }
+        .tz-animate-slide-up { animation: tz-slide-up 0.7s ease-out both; }
+
+        .tz-stagger-1 { animation-delay: 0.1s; }
+        .tz-stagger-2 { animation-delay: 0.2s; }
+        .tz-stagger-3 { animation-delay: 0.35s; }
+        .tz-stagger-4 { animation-delay: 0.5s; }
+
+        .tz-glass { background: rgba(255,255,255,0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .tz-glass-dark { background: rgba(30,58,49,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+
+        .tz-shimmer-bar { background: linear-gradient(90deg, transparent 0%, rgba(194,155,64,0.15) 50%, transparent 100%); background-size: 200% 100%; animation: tz-shimmer 2.5s ease-in-out infinite; }
+
+        .tz-card-hover { transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        .tz-card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(30,58,49,0.12), 0 0 0 1px rgba(194,155,64,0.15); }
+
+        .tz-btn-glow { position: relative; overflow: hidden; }
+        .tz-btn-glow::after { content: ''; position: absolute; inset: -2px; border-radius: inherit; background: linear-gradient(135deg, rgba(194,155,64,0.3), transparent, rgba(194,155,64,0.3)); opacity: 0; transition: opacity 0.4s; z-index: -1; }
+        .tz-btn-glow:hover::after { opacity: 1; }
+
+        .tz-ornament { position: relative; }
+        .tz-ornament::before, .tz-ornament::after { content: '✦'; color: #c29b40; opacity: 0.4; font-size: 10px; position: relative; top: -2px; }
+        .tz-ornament::before { margin-right: 12px; }
+        .tz-ornament::after { margin-left: 12px; }
+
+        .tz-gradient-border { border: 2px solid transparent; background-clip: padding-box; position: relative; }
+        .tz-gradient-border::before { content:''; position: absolute; inset: -2px; border-radius: inherit; background: linear-gradient(135deg, #c29b40 0%, #e8dfca 50%, #c29b40 100%); z-index: -1; }
+
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #fdfaf3; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c29b40; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #fdfaf3; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #c29b40, #a07e30); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #d4ab50, #c29b40); }
+
+        .tz-ayah-area { background: linear-gradient(180deg, #fffdf8 0%, #faf6ee 100%); }
+        .tz-hero-gradient { background: linear-gradient(135deg, #1e3a31 0%, #264a3e 40%, #1e3a31 100%); }
       `}</style>
     </div>
   );
