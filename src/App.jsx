@@ -5,7 +5,7 @@ import {
   Eye, Volume2, Info, CheckCircle2, List,
   Trophy, LogIn, PlayCircle, HelpCircle, X,
   Loader2, Sparkles, Volume1, VolumeX, FastForward,
-  Check, Headphones, Hash, Book
+  Check, Headphones, Hash, Book, Languages
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -79,6 +79,7 @@ const App = () => {
   const [loopCount, setLoopCount] = useState(1);
   const [currentLoop, setCurrentLoop] = useState(1);
   const [isTextHidden, setIsTextHidden] = useState(false);
+  const [showTransliteration, setShowTransliteration] = useState(true); // Toggle for romanization text
   const [reciter, setReciter] = useState(RECITERS[0].id);
   const [tafsir, setTafsir] = useState(null);
   const [showTafsir, setShowTafsir] = useState(false);
@@ -162,18 +163,21 @@ const App = () => {
     abortControllerRef.current = new AbortController();
     
     setLoading(true);
-    fetch(`${API_BASE}/surah/${selectedSurah.number}/editions/quran-uthmani,en.sahih,${reciter}`, {
+    // Added en.transliteration into the fetched API editions list
+    fetch(`${API_BASE}/surah/${selectedSurah.number}/editions/quran-uthmani,en.transliteration,en.sahih,${reciter}`, {
       signal: abortControllerRef.current.signal
     })
       .then(res => res.json())
       .then(data => {
         const arabic = data.data[0].ayahs;
-        const english = data.data[1].ayahs;
-        const audio = data.data[2].ayahs;
+        const translit = data.data[1].ayahs;
+        const english = data.data[2].ayahs;
+        const audio = data.data[3].ayahs;
         
         const fetchedAyahs = arabic.map((ayah, i) => ({
           number: ayah.numberInSurah,
           text: i === 0 ? stripBismillah(ayah.text, selectedSurah.number) : ayah.text,
+          transliteration: translit[i].text,
           translation: english[i].text,
           audio: audio[i].audio
         }));
@@ -223,6 +227,20 @@ const App = () => {
     return () => audio.removeEventListener('ended', handleEnded);
   }, [loopCount, mode, activeAyahIndex, ayahs]);
   
+  useEffect(() => {
+    const audio = audioRef.current;
+    const updateProgress = () => setCurrentTime(audio.currentTime);
+    const updateDuration = () => setDuration(audio.duration || 0);
+
+    audio.addEventListener('timeupdate', updateProgress);
+    audio.addEventListener('loadedmetadata', updateDuration);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateProgress);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+    };
+  }, []);
+
   useEffect(() => {
     audioRef.current.volume = volume;
   }, [volume]);
@@ -707,19 +725,29 @@ const App = () => {
                   </p>
                 </div>
                 
-                {/* Embedded Translation Box underneath the flowing verse layout */}
-                <div className="text-left bg-[#fdfaf3] p-6 rounded-2xl border border-[#e8dfca]">
-                  <p className="text-xs font-black text-[#8b7d6b] uppercase tracking-widest mb-1">Active Translation (Verse {activeAyahIndex + 1})</p>
-                  <p className="text-[#5c5346] italic text-sm md:text-base font-body">
-                    "{ayahs[activeAyahIndex]?.translation}"
-                  </p>
+                {/* Embedded Transliteration + Translation Box underneath flowing text inside Book View */}
+                <div className="text-left bg-[#fdfaf3] p-6 rounded-2xl border border-[#e8dfca] space-y-4">
+                  {showTransliteration && ayahs[activeAyahIndex]?.transliteration && (
+                    <div>
+                      <p className="text-[10px] font-black text-[#c29b40] uppercase tracking-widest mb-1">Active Transliteration (Verse {activeAyahIndex + 1})</p>
+                      <p className="text-[#8b7d6b] font-medium text-sm md:text-base leading-relaxed">
+                        {ayahs[activeAyahIndex]?.transliteration}
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-black text-[#8b7d6b] uppercase tracking-widest mb-1">Active Translation (Verse {activeAyahIndex + 1})</p>
+                    <p className="text-[#5c5346] italic text-sm md:text-base font-body">
+                      "{ayahs[activeAyahIndex]?.translation}"
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : (
-              /* Original Core Single View Card Canvas Layout Component */
+              /* Core Single View Canvas Layout */
               <div className="relative p-10 md:p-16 bg-[#fffcf5] rounded-[3rem] border border-[#e8dfca] shadow-inner overflow-hidden mx-auto max-w-5xl">
                 <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none pattern-bg"></div>
-                <div className="relative flex flex-col items-center justify-center space-y-10">
+                <div className="relative flex flex-col items-center justify-center space-y-8">
                   {activeAyahIndex === 0 && selectedSurah.number !== 1 && selectedSurah.number !== 9 && (
                     <div className="flex items-center gap-6 text-[#c29b40]/60 mb-2">
                       <div className="h-px w-10 bg-current opacity-30"></div>
@@ -727,15 +755,28 @@ const App = () => {
                       <div className="h-px w-10 bg-current opacity-30"></div>
                     </div>
                   )}
-                  <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
+                  <div className={`w-full transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'} space-y-8`}>
+                    {/* Arabic Text */}
                     <p className="font-arabic text-2xl md:text-4xl leading-[2.5] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
                       {ayahs[activeAyahIndex]?.text}
                     </p>
-                    <div className="flex justify-center items-center gap-4 my-8">
+
+                    {/* Transliteration Romanized text explicitly added right here between Arabic and English text */}
+                    {showTransliteration && ayahs[activeAyahIndex]?.transliteration && (
+                      <div className="max-w-4xl mx-auto px-4 animate-in fade-in duration-300">
+                        <p className="text-[#c29b40] font-sans text-base md:text-lg font-medium leading-relaxed tracking-wide">
+                          {ayahs[activeAyahIndex]?.transliteration}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-center items-center gap-4 my-4">
                       <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
                       <div className="w-1.5 h-1.5 rotate-45 border border-[#c29b40]"></div>
                       <div className="h-px w-10 bg-gradient-to-l from-transparent to-[#c29b40]/40"></div>
                     </div>
+
+                    {/* Translation text */}
                     <p className="text-[#5c5346] text-xl md:text-2xl font-body italic max-w-4xl mx-auto leading-[1.6] px-4">
                       "{ayahs[activeAyahIndex]?.translation}"
                     </p>
@@ -745,9 +786,9 @@ const App = () => {
             )}
 
             <div className="flex flex-col items-center space-y-12">
-              <div className="flex items-center gap-10">
+              <div className="flex items-center gap-6 md:gap-10">
                 
-                {/* CORRECTED: Switch explicitly added here for Listen Mode Toggle */}
+                {/* Switch added for Listen Mode Toggle layout configuration */}
                 {mode === 'listen' ? (
                   <button 
                     onClick={() => setListenLayout(prev => prev === 'single' ? 'book' : 'single')} 
@@ -762,6 +803,7 @@ const App = () => {
                   </button>
                 )}
 
+                {/* Core Playback controller navigation layout setup */}
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center bg-[#1e3a31] rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20">
                     <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
@@ -771,8 +813,14 @@ const App = () => {
                     <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
                     </div>
                 </div>
-                <button onClick={() => { audioRef.current.currentTime = 0; audioRef.current.play(); setIsPlaying(true); }} className="w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center text-[#1e3a31] hover:bg-[#faf7f0]">
-                  <RotateCcw size={32} />
+
+                {/* Transliteration Visibility Toggle Control Button */}
+                <button 
+                  onClick={() => setShowTransliteration(!showTransliteration)} 
+                  className={`w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center transition-all text-[#1e3a31] ${showTransliteration ? 'bg-[#c29b40]/10 border-[#c29b40]' : 'hover:bg-[#faf7f0]'}`}
+                  title={showTransliteration ? "Hide Transliteration" : "Show Transliteration"}
+                >
+                  <Languages size={32} className={showTransliteration ? 'text-[#c29b40]' : 'text-[#1e3a31]'} />
                 </button>
               </div>
 
