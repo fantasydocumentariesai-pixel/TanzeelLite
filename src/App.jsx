@@ -23,6 +23,7 @@ import {
   onSnapshot, 
   collection 
 } from 'firebase/firestore';
+import { motion, useMotionValue, useTransform } from 'motion/react';
 
 // --- Configuration & Constants ---
 const API_BASE = "https://api.alquran.cloud/v1";
@@ -61,176 +62,146 @@ const stripBismillah = (text, surahNumber) => {
   return text;
 };
 
-// --- ADAPTED REACTBITS 3D ROTATING MENU CAROUSEL COMPONENTS ---
-function CarouselItem({ item, index, itemWidth, trackItemOffset, setView }) {
+// --- Carousel Internal Constants ---
+const DRAG_BUFFER = 0;
+const VELOCITY_THRESHOLD = 500;
+const GAP = 16;
+const SPRING_OPTIONS = { type: 'spring', stiffness: 300, damping: 30 };
+
+function CarouselItem({ item, index, itemWidth, trackItemOffset, x, transition }) {
+  const range = [-(index + 1) * trackItemOffset, -index * trackItemOffset, -(index - 1) * trackItemOffset];
+  const outputRange = [90, 0, -90];
+  const rotateY = useTransform(x, range, outputRange, { clamp: false });
+
   return (
-    <div
-      onClick={() => setView(item.viewTarget)}
-      className="relative shrink-0 flex flex-col items-start justify-between bg-white border border-[#e8dfca] rounded-[2rem] overflow-hidden cursor-pointer p-8 tz-card-hover group shadow-lg select-none"
+    <motion.div
+      key={`${item?.id ?? index}-${index}`}
+      className="relative shrink-0 w-full cursor-grab active:cursor-grabbing"
       style={{
         width: itemWidth,
-        height: '100%',
-        transform: `rotateY(0deg)`, // Handled smoothly via native high-performance GPU CSS layers
-        backfaceVisibility: 'hidden'
+        rotateY: rotateY
       }}
+      transition={transition}
     >
-      <div className="flex w-full justify-between items-start">
-        <div className="p-4 tz-hero-gradient text-[#c29b40] rounded-2xl group-hover:scale-110 transition-transform shadow-md">
-          {item.icon}
+      <button 
+        onClick={item.onClick} 
+        className={item.className}
+      >
+        <div className="text-left">
+          <h3 className={item.titleClassName}>{item.title}</h3>
+          <p className={item.descClassName}>{item.description}</p>
         </div>
-        <ChevronRight className="text-[#c29b40] opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" size={24} />
-      </div>
-      
-      <div className="mt-8 text-left space-y-2">
-        <h3 className="text-2xl font-heading text-[#1e3a31]">{item.title}</h3>
-        <p className="text-[#8b7d6b] text-sm font-light leading-relaxed">{item.description}</p>
-      </div>
-    </div>
+        {item.icon}
+      </button>
+    </motion.div>
   );
 }
 
-function MenuCarousel({ setView, resumeSurah, setSelectedSurah }) {
-  const items = useMemo(() => {
-    const list = [
-      {
-        title: 'Begin Journey',
-        description: 'Browse through the Surah library, monitor verse parameters and tracks.',
-        viewTarget: 'browser',
-        icon: <PlayCircle size={28} />
-      },
-      {
-        title: 'Manual Guide',
-        description: 'Traditional guidelines and optimized interval loops for memorization.',
-        viewTarget: 'how-to',
-        icon: <HelpCircle size={28} />
-      }
-    ];
-
-    if (resumeSurah) {
-      list.unshift({
-        title: `Resume: ${resumeSurah.englishName}`,
-        description: `Continue exactly where you left off. Only ${resumeSurah.remaining} verses remaining.`,
-        viewTarget: 'resume-action',
-        icon: <Sparkles size={28} />
-      });
-    }
-    return list;
-  }, [resumeSurah]);
-
-  const baseWidth = 340;
-  const GAP = 16;
+function MenuCarousel({ items, baseWidth = 500 }) {
   const containerPadding = 16;
   const itemWidth = baseWidth - containerPadding * 2;
   const trackItemOffset = itemWidth + GAP;
+  const itemsForRender = items;
 
   const [position, setPosition] = useState(0);
-  const containerRef = useRef(null);
-  const startX = useRef(0);
-  const currentTranslate = useRef(0);
-  const isDragging = useRef(false);
+  const x = useMotionValue(0);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
     setPosition(0);
-  }, [items.length]);
+    x.set(0);
+  }, [items.length, trackItemOffset, x]);
+
+  const effectiveTransition = SPRING_OPTIONS;
+
+  const handleAnimationStart = () => {
+    setIsAnimating(true);
+  };
+
+  const handleAnimationComplete = () => {
+    setIsAnimating(false);
+  };
+
+  const handleDragEnd = (_, info) => {
+    const { offset, velocity } = info;
+    const direction =
+      offset.x < -DRAG_BUFFER || velocity.x < -VELOCITY_THRESHOLD
+        ? 1
+        : offset.x > DRAG_BUFFER || velocity.x > VELOCITY_THRESHOLD
+          ? -1
+          : 0;
+
+    if (direction === 0) return;
+
+    setPosition(prev => {
+      const next = prev + direction;
+      const max = itemsForRender.length - 1;
+      return Math.max(0, Math.min(next, max));
+    });
+  };
+
+  const dragProps = {
+    dragConstraints: {
+      left: -trackItemOffset * Math.max(itemsForRender.length - 1, 0),
+      right: 0
+    }
+  };
 
   const activeIndex = Math.min(position, items.length - 1);
 
-  const handleTouchStart = (e) => {
-    startX.current = e.touches[0].clientX;
-    isDragging.current = true;
-  };
-
-  const handleTouchMove = (e) => {
-    if (!isDragging.current) return;
-    const currentX = e.touches[0].clientX;
-    currentTranslate.current = currentX - startX.current;
-  };
-
-  const handleTouchEnd = () => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-    if (currentTranslate.current < -40 && position < items.length - 1) {
-      setPosition(p => p + 1);
-    } else if (currentTranslate.current > 40 && position > 0) {
-      setPosition(p => p - 1);
-    }
-    currentTranslate.current = 0;
-  };
-
-  const handleMouseDown = (e) => {
-    startX.current = e.clientX;
-    isDragging.current = true;
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging.current) return;
-    currentTranslate.current = e.clientX - startX.current;
-  };
-
-  const handleMouseUp = () => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-    if (currentTranslate.current < -40 && position < items.length - 1) {
-      setPosition(p => p + 1);
-    } else if (currentTranslate.current > 40 && position > 0) {
-      setPosition(p => p - 1);
-    }
-    currentTranslate.current = 0;
-  };
-
-  const handleItemViewTransition = (target) => {
-    if (target === 'resume-action') {
-      setSelectedSurah(resumeSurah);
-      setView('browser');
-    } else {
-      setView(target);
-    }
-  };
-
   return (
-    <div className="flex flex-col items-center justify-center w-full max-w-sm mx-auto">
-      <div 
-        ref={containerRef}
-        className="relative overflow-hidden p-4 w-full h-[290px]"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={{ perspective: '1000px' }}
+    <div
+      className="relative overflow-hidden p-4 rounded-[24px] w-full max-w-lg"
+      style={{ width: `${baseWidth}px` }}
+    >
+      <motion.div
+        className="flex"
+        drag={isAnimating ? false : 'x'}
+        {...dragProps}
+        style={{
+          width: itemWidth,
+          gap: `${GAP}px`,
+          perspective: 1000,
+          perspectiveOrigin: `${position * trackItemOffset + itemWidth / 2}px 50%`,
+          x
+        }}
+        onDragEnd={handleDragEnd}
+        animate={{ x: -(position * trackItemOffset) }}
+        transition={effectiveTransition}
+        onAnimationStart={handleAnimationStart}
+        onAnimationComplete={handleAnimationComplete}
       >
-        <div
-          className="flex h-full transition-transform duration-500 cubic-bezier(0.25, 1, 0.5, 1)"
-          style={{
-            transform: `translateX(${-position * trackItemOffset}px)`,
-            width: `${items.length * trackItemOffset}px`,
-            gap: `${GAP}px`
-          }}
-        >
-          {items.map((item, index) => (
-            <CarouselItem
+        {itemsForRender.map((item, index) => (
+          <CarouselItem
+            key={`${item?.id ?? index}-${index}`}
+            item={item}
+            index={index}
+            itemWidth={itemWidth}
+            trackItemOffset={trackItemOffset}
+            x={x}
+            transition={effectiveTransition}
+          />
+        ))}
+      </motion.div>
+      <div className="flex w-full justify-center">
+        <div className="mt-6 flex w-[100px] justify-between px-4">
+          {items.map((_, index) => (
+            <motion.button
+              type="button"
               key={index}
-              item={item}
-              index={index}
-              itemWidth={itemWidth}
-              trackItemOffset={trackItemOffset}
-              setView={handleItemViewTransition}
+              aria-label={`Go to slide ${index + 1}`}
+              aria-current={activeIndex === index}
+              className={`h-2 w-2 rounded-full cursor-pointer border-0 p-0 appearance-none transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+                activeIndex === index ? 'bg-[#c29b40]' : 'bg-[#e8dfca]'
+              }`}
+              animate={{
+                scale: activeIndex === index ? 1.3 : 1
+              }}
+              onClick={() => setPosition(index)}
+              transition={{ duration: 0.15 }}
             />
           ))}
         </div>
-      </div>
-      
-      {/* Dynamic Navigation Indicator Bar */}
-      <div className="flex gap-2 mt-2">
-        {items.map((_, index) => (
-          <button
-            key={index}
-            onClick={() => setPosition(index)}
-            className={`h-2 transition-all duration-300 rounded-full ${activeIndex === index ? 'w-6 bg-[#c29b40]' : 'w-2 bg-[#e8dfca]'}`}
-          />
-        ))}
       </div>
     </div>
   );
@@ -358,13 +329,14 @@ const App = () => {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
+        // We removed the logic that increments activeAyahIndex
         setCurrentLoop(1);
         setIsPlaying(false);
       }
     };
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [currentLoop, loopCount]);
+  }, [currentLoop, loopCount]); // Removed activeAyahIndex and ayahs from dependencies
   
   // Load new audio source when Ayah changes
   useEffect(() => {
@@ -424,6 +396,33 @@ const App = () => {
     return Math.round((count / ayahs.length) * 100);
   }, [selectedSurah, ayahs, memorizedAyahs]);
 
+  const menuItems = useMemo(() => [
+    {
+      id: 1,
+      title: 'Begin Journey',
+      description: 'Browse through the Sacred Verses',
+      onClick: () => setView('browser'),
+      className: "w-full group p-8 tz-hero-gradient rounded-[2rem] text-white flex items-center justify-between tz-card-hover shadow-xl shadow-emerald-900/30 tz-animate-in tz-stagger-1 tz-btn-glow text-left",
+      titleClassName: "text-2xl font-heading mb-1 group-hover:translate-x-1 transition-transform",
+      descClassName: "text-emerald-100/60 text-sm font-light",
+      icon: (
+        <div className="p-4 bg-[#c29b40] rounded-full text-[#1e3a31] group-hover:scale-110 transition-transform shadow-lg">
+          <PlayCircle size={32} />
+        </div>
+      )
+    },
+    {
+      id: 2,
+      title: 'Manual',
+      description: 'Guidelines for memorization',
+      onClick: () => setView('how-to'),
+      className: "w-full group p-8 tz-glass border border-[#e8dfca] rounded-[2rem] text-[#1e3a31] flex items-center justify-between tz-card-hover tz-animate-in tz-stagger-2 text-left",
+      titleClassName: "text-2xl font-heading mb-1 group-hover:translate-x-1 transition-transform",
+      descClassName: "text-[#8b7d6b] text-sm font-light",
+      icon: <HelpCircle size={32} className="text-[#c29b40]" />
+    }
+  ], []);
+
   if (view === 'loading') {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] pattern-bg">
@@ -478,8 +477,8 @@ const App = () => {
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#fdfaf3] p-6 pattern-bg relative overflow-hidden">
         <div className="absolute top-[10%] left-[5%] w-[300px] h-[300px] bg-[#c29b40]/5 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-[10%] right-[5%] w-[250px] h-[250px] bg-[#1e3a31]/5 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="w-full max-w-lg space-y-10 relative z-10">
-          <div className="text-center space-y-4 tz-animate-in">
+        <div className="w-full max-w-lg space-y-12 relative z-10 flex flex-col items-center">
+          <div className="text-center space-y-4 tz-animate-in w-full">
             <div className="flex justify-center mb-4">
                 <div className="h-1 w-16 bg-gradient-to-r from-transparent via-[#c29b40] to-transparent rounded-full"></div>
             </div>
@@ -487,10 +486,7 @@ const App = () => {
             <p className="text-[#8b7d6b] italic font-light text-lg font-body">"If Allah permits it, you will one day memorise the Quran!"</p>
           </div>
           
-          {/* --- INTEGRATED 3D ROTATING MENU CAROUSEL INTERFACE --- */}
-          <div className="py-2 tz-animate-in tz-stagger-1">
-            <MenuCarousel setView={setView} resumeSurah={resumeSurah} setSelectedSurah={setSelectedSurah} />
-          </div>
+          <MenuCarousel items={menuItems} baseWidth={500} />
           
           {user && (
             <button onClick={() => signOut(auth)} className="w-full py-2 text-[#c29b40] text-xs font-bold hover:underline tracking-[0.3em] uppercase tz-animate-in tz-stagger-4">
@@ -510,7 +506,7 @@ const App = () => {
           <button onClick={() => setView('menu')} className="absolute top-8 right-8 p-2.5 bg-[#fdfaf3] rounded-full text-[#1e3a31] hover:text-[#c29b40] hover:rotate-90 transition-all duration-300">
             <X size={20} />
           </button>
-          <h2 className="text-3xl font-heading text-[#1e3a31] mb-8 border-b border-[#e8dfca] pb-4">Memorization Guide</h2>
+          <h2 className="text-3xl font-heading text-[#1e3a31] mb-8 border-b border-[#e8dfca] pb-4">Manual</h2>
           <div className="space-y-8 text-[#5c5346] leading-relaxed">
             <section className="flex gap-4 tz-animate-slide-up tz-stagger-1">
                 <div className="h-9 w-9 rounded-full tz-hero-gradient text-[#c29b40] flex items-center justify-center shrink-0 font-bold text-sm shadow-md">1</div>
@@ -587,7 +583,7 @@ const App = () => {
       <main className="w-full max-w-6xl flex-1 flex flex-col items-center justify-center p-6 text-center">
         {!selectedSurah ? (
           <div className="w-full">
-            {/* CONTINUE JOURNEY SECTON */}
+            {/* CONTINUE JOURNEY SECTION */}
             {resumeSurah && !searchQuery && (
               <div className="w-full mb-12 text-left animate-in fade-in slide-in-from-top-4 duration-700">
                 <div className="flex items-center gap-2 mb-4">
@@ -646,97 +642,4 @@ const App = () => {
                            <p className={`text-[10px] font-black mb-1 ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>SURAH {s.number}</p>
                            <h3 className="text-xl font-heading font-bold group-hover:translate-x-1 transition-transform">{s.englishName}</h3>
                            <p className={`text-[10px] mt-2 font-bold uppercase ${isFullyMastered ? 'text-emerald-100/60' : 'opacity-60'}`}>
-                             {s.numberOfAyahs} VERSES • {s.englishNameTranslation}
-                           </p>
-                           <div className="mt-3 flex items-center gap-2">
-                              <div className={`h-1 w-12 rounded-full overflow-hidden ${isFullyMastered ? 'bg-[#c29b40]/20' : 'bg-slate-100'}`}>
-                                <div className={`h-full transition-all duration-500 bg-[#c29b40]`} style={{ width: `${surahMastery}%` }}></div>
-                              </div>
-                              <span className={`text-[9px] font-black tracking-widest uppercase ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#8b7d6b]'}`}>
-                                {surahMastery}% Surah Mastery
-                              </span>
-                           </div>
-                        </div>
-                        <div className="text-right relative z-10">
-                          <p className={`font-arabic text-4xl ${isFullyMastered ? 'text-[#c29b40]' : 'text-[#1e3a31]'}`}>{s.name}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="py-20 text-center space-y-4">
-                <Search size={48} className="mx-auto text-[#e8dfca]" />
-                <p className="text-[#8b7d6b] font-heading">No Surahs found matching "{searchQuery}"</p>
-                <button onClick={() => setSearchQuery("")} className="text-[#c29b40] font-bold text-sm uppercase tracking-widest hover:underline">Clear Search</button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="w-full space-y-12 py-6">
-            <div className="relative p-10 md:p-16 tz-ayah-area rounded-[3rem] border border-[#e8dfca] shadow-inner overflow-hidden mx-auto max-w-5xl tz-animate-scale">
-              <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none pattern-bg"></div>
-              
-              <div className="relative flex flex-col items-center justify-center space-y-10">
-                {activeAyahIndex === 0 && selectedSurah.number !== 1 && selectedSurah.number !== 9 && (
-                  <div className="flex items-center gap-6 text-[#c29b40]/60 mb-2">
-                    <div className="h-px w-10 bg-current opacity-30"></div>
-                    <p className="font-arabic text-2xl">{BISMILLAH_ARABIC}</p>
-                    <div className="h-px w-10 bg-current opacity-30"></div>
-                  </div>
-                )}
-                
-                <div className={`transition-all duration-1000 transform ${isTextHidden ? 'blur-3xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
-                  <p className="font-arabic text-2xl md:text-4xl leading-[2.5] text-[#1e3a31] drop-shadow-[0_1px_1px_rgba(0,0,0,0.05)] text-center w-full max-w-4xl" style={{ direction: 'rtl' }}>
-                    {ayahs[activeAyahIndex]?.text}
-                  </p>
-                  
-                  <div className="flex justify-center items-center gap-4 my-8">
-                    <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#c29b40]/40"></div>
-                    <div className="w-1.5 h-1.5 rotate-45 border border-[#c29b40]"></div>
-                    <div className="h-px w-10 bg-gradient-to-l from-transparent to-[#c29b40]/40"></div>
-                  </div>
-
-                  <p className="text-[#5c5346] text-xl md:text-2xl font-body italic max-w-4xl mx-auto leading-[1.6] px-4">
-                    "{ayahs[activeAyahIndex]?.translation}"
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-center space-y-12">
-              <div className="flex items-center gap-10">
-                <button onClick={() => setIsTextHidden(!isTextHidden)} className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isTextHidden ? 'bg-[#c29b40] text-[#1e3a31] shadow-lg scale-110' : 'bg-white border border-[#e8dfca] text-[#1e3a31] hover:bg-[#faf7f0]'}`}>
-                  {isTextHidden ? <Eye size={32} /> : <EyeOff size={32} />}
-                </button>
-
-                <div className="flex items-center tz-hero-gradient rounded-full shadow-2xl p-4 gap-8 border-4 border-[#c29b40]/20 tz-animate-in tz-stagger-2">
-                  <button onClick={() => setActiveAyahIndex(p => Math.max(0, p - 1))} disabled={activeAyahIndex === 0} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronLeft size={40}/></button>
-                  <button onClick={togglePlay} className="w-24 h-24 bg-[#c29b40] text-[#1e3a31] rounded-full flex items-center justify-center shadow-lg hover:brightness-110 transition-all transform active:scale-95 tz-btn-glow">
-                    {isPlaying ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" className="ml-2" />}
-                  </button>
-                  <button onClick={() => setActiveAyahIndex(p => Math.min(ayahs.length - 1, p + 1))} disabled={activeAyahIndex === ayahs.length - 1} className="p-2 text-white/40 hover:text-[#c29b40] disabled:opacity-10 transition-colors"><ChevronRight size={40}/></button>
-                </div>
-
-                <button onClick={() => { audioRef.current.currentTime = 0; audioRef.current.play(); setIsPlaying(true); }} className="w-16 h-16 rounded-full bg-white border border-[#e8dfca] flex items-center justify-center text-[#1e3a31] hover:bg-[#faf7f0]">
-                  <RotateCcw size={32} />
-                </button>
-              </div>
-
-              <div className="flex flex-col items-center gap-5">
-                <span className="text-[11px] font-black text-[#c29b40] uppercase tracking-[0.3em]">Ayah Iterations</span>
-                <div className="flex bg-[#1e3a31]/5 p-2 rounded-2xl border border-[#e8dfca]">
-                  {[1, 3, 5, 10].map(count => (
-                    <button key={count} onClick={() => setLoopCount(count)} className={`px-10 py-3 rounded-xl text-sm font-bold transition-all ${loopCount === count ? 'bg-[#1e3a31] text-white shadow-md' : 'text-[#1e3a31]/40 hover:text-[#1e3a31]'}`}>
-                      {count}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-8 w-full max-w-2xl mx-auto pt-10">
-              <button 
-                onClick={() => {
-                  const key = `${selectedSur
+                             {s.numberOfAyahs} VERSES • {s.
