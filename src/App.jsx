@@ -336,7 +336,7 @@ const App = () => {
           <div className="space-y-3">
             <h1 className="text-4xl font-heading text-[#1e3a31] tracking-wide">TanzeelLite</h1>
             <div className="h-0.5 w-16 bg-[#c29b40] mx-auto opacity-60"></div>
-            <p className="text-slate-500 font-light tracking-wide text-sm">Your modern path to traditional mastery</p>
+            <p className="text-slate-500 font-light tracking-wide text-sm">Memorise the Quran today</p>
           </div>
           <div className="space-y-4 pt-4">
             <button 
